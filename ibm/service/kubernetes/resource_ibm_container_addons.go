@@ -5,6 +5,7 @@ package kubernetes
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+	yaml "gopkg.in/yaml.v3"
 
 	v1 "github.com/IBM-Cloud/bluemix-go/api/container/containerv1"
 	"github.com/IBM-Cloud/bluemix-go/bmxerror"
@@ -113,6 +115,12 @@ func ResourceIBMContainerAddOns() *schema.Resource {
 							Computed:    true,
 							Description: "VLAN spanning required for multi-zone clusters",
 						},
+						"options": {
+							Type:        schema.TypeString,
+							Computed:    true,
+							ForceNew:    false,
+							Description: "The addon Options",
+						},
 						"parameters_json": {
 							Type:     schema.TypeString,
 							Optional: true,
@@ -158,22 +166,25 @@ func resourceIBMContainerAddOnsCreate(d *schema.ResourceData, meta interface{}) 
 	}
 	cluster := d.Get("cluster").(string)
 	existingAddons, err := addOnAPI.GetAddons(cluster, targetEnv)
-	log.Println("\n------------------\n\nTHIS IS THE VALUE 1\n", existingAddons)
-	log.Println("--------------------")
+
 	if err != nil {
 		log.Println("[ WARN ] Error getting Addons.")
 	}
+	/////////////////////////////////////////////////////////////////////
+	/////////////////////////////////////////////////////////////////////
+
 	payload, err := expandAddOns(d, meta, cluster, targetEnv, existingAddons)
-	log.Println("\n------------------\n\nTHIS IS THE VALUE 90\n", payload)
-	log.Println("--------------------")
 	if err != nil {
 		return fmt.Errorf("[ERROR] Error in getting addons from expandAddOns during Create: %s", err)
 	}
 	payload.Enable = true
+	// initially options
+
 	_, err = addOnAPI.ConfigureAddons(cluster, &payload, targetEnv)
 	if err != nil {
 		return err
 	}
+
 	_, err = waitForContainerAddOns(d, meta, cluster, schema.TimeoutCreate)
 	if err != nil {
 		return fmt.Errorf("[ERROR] Error waiting for Addon to reach normal during create (%s) : %s", d.Id(), err)
@@ -182,6 +193,70 @@ func resourceIBMContainerAddOnsCreate(d *schema.ResourceData, meta interface{}) 
 
 	return resourceIBMContainerAddOnsRead(d, meta)
 }
+
+func getOptions(d *schema.ResourceData, meta interface{}) (string, error) {
+
+	csClient, err := meta.(conns.ClientSession).ContainerAPI()
+	if err != nil {
+		return "", err
+	}
+
+	addOnAPI := csClient.AddOns()
+
+	addOn, _ := d.Get("addons").(*schema.Set).List()[0].(map[string]interface{})
+	var params map[string]interface{}
+	json.Unmarshal([]byte(addOn["parameters_json"].(string)), &params)
+
+	newResult, _ := addOnAPI.ListAddons()
+	log.Println("\n------------------\n\nTHIS IS THE VALUE 9000\n", newResult)
+	log.Println("--------------------")
+
+	optionParams, _ := getAddonOptions(d, newResult)
+
+	log.Println("\n------------------\n\nThis is the value of options data\n", optionParams["content"])
+	log.Println("--------------------")
+
+	var optionparams map[string]interface{}
+	yaml.Unmarshal([]byte(optionParams["content"].(string)), &optionparams)
+
+	log.Println("\n------------------\n\nThis is the value of options data after unmarshal\n", optionparams)
+	log.Println("--------------------")
+
+	result, _ := validateAddonOptions(params, optionparams)
+
+	if result {
+
+		log.Println("\nParameters\n", updateAddOnOptions(params, optionparams))
+		data := updateAddOnOptions(params, optionparams)
+		x, _ := yaml.Marshal(&data)
+		log.Println("Marshalled Value \n", string(x))
+
+		return string(x), nil
+
+	}
+
+	return "", err
+
+}
+
+func getAddonOptions(d *schema.ResourceData, result []v1.AddOn) (options map[string]interface{}, err error) {
+	addOn, _ := d.Get("addons").(*schema.Set).List()[0].(map[string]interface{})
+	for _, value := range result {
+		log.Println("This is the Value Name", value.Name)
+		log.Println("This is the Value Version", value.Version)
+		log.Println("This is the addOn Name", addOn["name"].(string))
+		log.Println("This is the addOn Version", addOn["version"].(string))
+		if (value.Name == addOn["name"].(string)) && (value.Version == addOn["version"].(string)) {
+
+			return value.InstallOptionsTemplate.(map[string]interface{}), nil
+
+		}
+
+	}
+	var e map[string]interface{}
+	return e, fmt.Errorf("[ERROR] The given addon is not provided with upgradable or updatable version")
+}
+
 func expandAddOns(d *schema.ResourceData, meta interface{}, cluster string, targetEnv v1.ClusterTargetHeader, existingAddons []v1.AddOn) (addOns v1.ConfigureAddOns, err error) {
 	addOnSet := d.Get("addons").(*schema.Set).List()
 	log.Println("\n------------------\n\nTHIS IS THE VALUE 0 \n", addOnSet)
@@ -195,12 +270,10 @@ func expandAddOns(d *schema.ResourceData, meta interface{}, cluster string, targ
 			if ao["version"] != nil {
 				addOn.Version = ao["version"].(string)
 			}
-			addOn.Options = ao["parameters_json"]
+			addOn.Options, _ = getOptions(d, meta)
 			addOns.AddonsList = append(addOns.AddonsList, addOn)
 
 		}
-		log.Println("\n------------------\n\nTHIS IS THE VALUE 100 \n", addOns)
-		log.Println("--------------------")
 	}
 	if len(existingAddons) > 0 {
 		csClient, err := meta.(conns.ClientSession).ContainerAPI()
@@ -242,9 +315,11 @@ func expandAddOns(d *schema.ResourceData, meta interface{}, cluster string, targ
 							addParam := v1.AddOn{
 								Name: ao["name"].(string),
 							}
+
 							if ao["version"] != nil {
 								rmParam.Version = ao["version"].(string)
 							}
+
 							addParams.AddonsList = append(addParams.AddonsList, addParam)
 							addParams.Enable = true
 							_, err = addOnAPI.ConfigureAddons(cluster, &addParams, targetEnv)
@@ -267,7 +342,7 @@ func expandAddOns(d *schema.ResourceData, meta interface{}, cluster string, targ
 				if ao["version"] != nil {
 					addOn.Version = ao["version"].(string)
 				}
-				addOn.Options = ao["parameters_json"]
+				addOn.Options, _ = getOptions(d, meta)
 				addOns.AddonsList = append(addOns.AddonsList, addOn)
 			}
 		}
@@ -354,6 +429,8 @@ func flattenAddOns(result []v1.AddOn) (resp *schema.Set, err error) {
 		}
 
 		record["vlan_spanning_required"] = addOn.VlanSpanningRequired
+
+		record["options"] = addOn.Options
 
 		addOns = append(addOns, record)
 	}
@@ -581,4 +658,28 @@ func resourceIBMContainerAddonsHash(v interface{}) int {
 	buf.WriteString(fmt.Sprintf("%s-", a["version"].(string)))
 
 	return conns.String(buf.String())
+}
+
+func validateAddonOptions(jsonInput map[string]interface{}, yamlDefault map[string]interface{}) (bool, error) {
+
+	for i, _ := range jsonInput {
+		if _, ok := yamlDefault["data"].(map[string]interface{})[i]; ok {
+			continue
+		} else {
+			return false, fmt.Errorf("[ERROR] Error defining container addons")
+		}
+
+	}
+
+	return true, nil
+}
+
+func updateAddOnOptions(jsonInput map[string]interface{}, yamlDefault map[string]interface{}) map[string]interface{} {
+
+	for i, v := range jsonInput {
+		yamlDefault["data"].(map[string]interface{})[i] = v.(string)
+	}
+
+	return yamlDefault
+
 }

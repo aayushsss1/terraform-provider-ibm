@@ -1,0 +1,209 @@
+[
+  {
+    "name": "openshift-data-foundation",
+    "version": "4.7.0",
+    "minOCPVersion": "4.7",
+    "supportedOCPRange": ">=4.7.0 <4.9.0",
+    "targetVersion": "4.10.0",
+    "installOptionsTemplate": {
+      "content": "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: managed-addon-options-osc\n  namespace: kube-system\ndata:\n  odfDeploy: \"true\" #Automatically deploy ODF on enabling addon\n  monSize: 20Gi #Select mon size here, Required\n  monStorageClassName: ibmc-vpc-block-metro-10iops-tier #Select mon storage class name here, Required\n  monDevicePaths: <Please provide IDs of the disks to be used for mon pods if using local disks or standard classic cluster> #Select mon device path here (Disk-by-id), Optional\n  osdSize: 250Gi #Select osd size here, Required\n  osdStorageClassName: ibmc-vpc-block-metro-10iops-tier #Select osd storage class name here, Required\n  osdDevicePaths: <Please provide IDs of the disks to be used for OSD pods if using local disks or standard classic cluster> #Select osd device path here (Disk-by-id), Optional\n  numOfOsd: \"1\" #Optional (Default is 1)\n  workerNodes: all #Select Worker nodes for OCS, Optional\n  ocsUpgrade: \"false\" #Optional\n  clusterEncryption: \"false\" #Set to true if you want cluster wide encryption\n  billingType: \"advanced\" #Billing type. Choose between advanced and essentials\n",
+      "immutable": true
+    }
+  },
+  {
+    "name": "openshift-data-foundation",
+    "version": "4.8.0",
+    "minOCPVersion": "4.8",
+    "supportedOCPRange": ">=4.8.0 <4.10.0",
+    "targetVersion": "4.10.0",
+    "installOptionsTemplate": {
+      "content": "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: managed-addon-options-osc\n  namespace: kube-system\ndata:\n  odfDeploy: \"true\" #Automatically deploy ODF on enabling addon\n  osdSize: 250Gi #Select osd size here, Required\n  osdStorageClassName: ibmc-vpc-block-metro-10iops-tier #Select osd storage class name here, Required\n  osdDevicePaths: <Please provide IDs of the disks to be used for OSD pods if using local disks or standard classic cluster> #Select osd device path here (Disk-by-id), Optional\n  numOfOsd: \"1\" #Optional (Default is 1)\n  workerNodes: all #Select Worker nodes for OCS, Optional\n  ocsUpgrade: \"false\" #Optional\n  clusterEncryption: \"false\" #Set to true if you want cluster wide encryption\n  billingType: \"advanced\" #Billing type. Choose between advanced and essentials\n  autoDiscoverDevices: \"false\" #Set to true if automatically discovering local disks\n",
+      "immutable": true
+    }
+  },
+  {
+    "name": "openshift-data-foundation",
+    "version": "4.9.0",
+    "minOCPVersion": "4.9",
+    "supportedOCPRange": ">=4.9.0 <4.11.0",
+    "targetVersion": "4.10.0",
+    "installOptionsTemplate": {
+      "content": "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: managed-addon-options-osc\n  namespace: kube-system\ndata:\n  odfDeploy: \"true\" #Automatically deploy ODF on enabling addon\n  osdSize: 250Gi #Select osd size here, Required\n  osdStorageClassName: ibmc-vpc-block-metro-10iops-tier #Select osd storage class name here, Required\n  osdDevicePaths: <Please provide IDs of the disks to be used for OSD pods if using local disks or standard classic cluster> #Select osd device path here (Disk-by-id), Optional\n  numOfOsd: \"1\" #Optional (Default is 1)\n  workerNodes: all #Select Worker nodes for OCS, Optional\n  ocsUpgrade: \"false\" #Optional\n  clusterEncryption: \"false\" #Set to true if you want cluster wide encryption\n  billingType: \"advanced\" #Billing type. Choose between advanced and essentials\n  autoDiscoverDevices: \"false\" #Set to true if automatically discovering local disks\n",
+      "immutable": true
+    }
+  },
+  {
+    "name": "openshift-data-foundation",
+    "version": "4.10.0",
+    "minOCPVersion": "4.10",
+    "supportedOCPRange": ">=4.10.0 <4.12.0",
+    "targetVersion": "4.10.0",
+    "installOptionsTemplate": {
+      "content": "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: managed-addon-options-osc\n  namespace: kube-system\ndata:\n  odfDeploy: \"true\" #Automatically deploy ODF on enabling addon\n  osdSize: 250Gi #Select osd size here, Required\n  osdStorageClassName: ibmc-vpc-block-metro-10iops-tier #Select osd storage class name here, Required\n  osdDevicePaths: <Please provide IDs of the disks to be used for OSD pods if using local disks or standard classic cluster> #Select osd device path here (Disk-by-id), Optional\n  numOfOsd: \"1\" #Optional (Default is 1)\n  workerNodes: all #Select Worker nodes for OCS, Optional\n  ocsUpgrade: \"false\" #Optional\n  clusterEncryption: \"false\" #Set to true if you want cluster wide encryption\n  billingType: \"advanced\" #Billing type. Choose between advanced and essentials\n  autoDiscoverDevices: \"false\" #Set to true if automatically discovering local disks\n  hpcsEncryption: \"false\" #Set to true if HPCS Encryption need to enable\n  hpcsServiceName: <Please provide the KMS Service instance name> # Provide the HPCS instance name if hpcsEncryption enabled true, Optional\n  hpcsInstanceId: <Please provide the KMS Service instance ID> # Provide the HPCS instance id if hpcsEncryption enabled true, Optional\n  hpcsSecretName: <Please provide the KMS secret name> # Provide secret name created with HPCS keys, Optional\n  hpcsBaseUrl: <Please provide the KMS Base (public) URL> # Provide HPCS Base URL from HPCS instance, Optional\n  hpcsTokenUrl: <Please provide the KMS token URL> # Provide HPCS token URL from HPCS instance, Optional\n  ignoreNoobaa: \"false\" #Set to true if you do not want MultiCloudGateway\n",
+      "immutable": true
+    }
+  },
+  {
+    "name": "openshift-data-foundation",
+    "version": "4.11.0",
+    "minOCPVersion": "4.11",
+    "supportedOCPRange": ">=4.11.0 <4.13.0",
+    "targetVersion": "4.10.0",
+    "installOptionsTemplate": {
+      "content": "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: managed-addon-options-osc\n  namespace: kube-system\ndata:\n  odfDeploy: \"true\" #Automatically deploy ODF on enabling addon\n  osdSize: 250Gi #Select osd size here, Required\n  osdStorageClassName: ibmc-vpc-block-metro-10iops-tier #Select osd storage class name here, Required\n  osdDevicePaths: <Please provide IDs of the disks to be used for OSD pods if using local disks or standard classic cluster> #Select osd device path here (Disk-by-id), Optional\n  numOfOsd: \"1\" #Optional (Default is 1)\n  workerNodes: all #Select Worker nodes for OCS, Optional\n  ocsUpgrade: \"false\" #Optional\n  clusterEncryption: \"false\" #Set to true if you want cluster wide encryption\n  billingType: \"advanced\" #Billing type. Choose between advanced and essentials\n  autoDiscoverDevices: \"false\" #Set to true if automatically discovering local disks\n  hpcsEncryption: \"false\" #Set to true if HPCS Encryption need to enable\n  hpcsServiceName: <Please provide the KMS Service instance name> # Provide the HPCS instance name if hpcsEncryption enabled true, Optional\n  hpcsInstanceId: <Please provide the KMS Service instance ID> # Provide the HPCS instance id if hpcsEncryption enabled true, Optional\n  hpcsSecretName: <Please provide the KMS secret name> # Provide secret name created with HPCS keys, Optional\n  hpcsBaseUrl: <Please provide the KMS Base (public) URL> # Provide HPCS Base URL from HPCS instance, Optional\n  hpcsTokenUrl: <Please provide the KMS token URL> # Provide HPCS token URL from HPCS instance, Optional\n  ignoreNoobaa: \"false\" #Set to true if you do not want MultiCloudGateway\n",
+      "immutable": true
+    }
+  },
+  {
+    "name": "debug-tool",
+    "version": "2.0.0",
+    "minKubeVersion": "1.17",
+    "supportedKubeRange": ">=1.17.0 <1.27.0",
+    "minOCPVersion": "3.11",
+    "supportedOCPRange": ">=3.11.0 <4.13.0",
+    "targetVersion": "2.0.0",
+    "installOptionsTemplate": {}
+  },
+  {
+    "name": "vpc-file-csi-driver",
+    "version": "1.0",
+    "minKubeVersion": "1.21",
+    "supportedKubeRange": ">=1.21.0 <1.26.0",
+    "minOCPVersion": "4.7",
+    "supportedOCPRange": ">=4.7.0 <4.12.0",
+    "targetVersion": "1.0",
+    "installOptionsTemplate": {}
+  },
+  {
+    "name": "csutil",
+    "version": "1.0.0",
+    "minKubeVersion": "1.20",
+    "supportedKubeRange": ">=1.20.0 <1.27.0",
+    "minOCPVersion": "4.6",
+    "supportedOCPRange": ">=4.6.0 <4.13.0",
+    "targetVersion": "1.0.0",
+    "installOptionsTemplate": {}
+  },
+  {
+    "name": "istio",
+    "version": "1.15",
+    "minKubeVersion": "1.21",
+    "supportedKubeRange": ">=1.21.0 <1.26.0",
+    "targetVersion": "1.16",
+    "installOptionsTemplate": {}
+  },
+  {
+    "name": "istio",
+    "version": "1.16",
+    "minKubeVersion": "1.23",
+    "supportedKubeRange": ">=1.23.0 <1.27.0",
+    "targetVersion": "1.16",
+    "installOptionsTemplate": {}
+  },
+  {
+    "name": "vpc-block-csi-driver",
+    "version": "4.4",
+    "minKubeVersion": "1.20",
+    "supportedKubeRange": ">=1.20.0 <1.26.0",
+    "minOCPVersion": "4.6",
+    "supportedOCPRange": ">=4.6.0 <4.12.0",
+    "targetVersion": "5.0",
+    "installOptionsTemplate": {}
+  },
+  {
+    "name": "vpc-block-csi-driver",
+    "version": "5.0",
+    "minKubeVersion": "1.22",
+    "supportedKubeRange": ">=1.22.0 <1.27.0",
+    "minOCPVersion": "4.8",
+    "supportedOCPRange": ">=4.8.0 <4.13.0",
+    "targetVersion": "5.0",
+    "installOptionsTemplate": {}
+  },
+  {
+    "name": "vpc-block-csi-driver",
+    "version": "5.1",
+    "minKubeVersion": "1.22",
+    "supportedKubeRange": ">=1.22.0 <1.27.0",
+    "minOCPVersion": "4.9",
+    "supportedOCPRange": ">=4.9.0 <4.13.0",
+    "targetVersion": "5.0",
+    "installOptionsTemplate": {}
+  },
+  {
+    "name": "alb-oauth-proxy",
+    "version": "2.0.0",
+    "minKubeVersion": "1.19",
+    "supportedKubeRange": ">=1.19.0 <1.27.0",
+    "targetVersion": "2.0.0",
+    "installOptionsTemplate": {}
+  },
+  {
+    "name": "cluster-autoscaler",
+    "version": "1.0.5",
+    "minKubeVersion": "1.20",
+    "supportedKubeRange": ">=1.20.0 <1.24.0",
+    "minOCPVersion": "4.6",
+    "supportedOCPRange": ">=4.6.0 <4.11.0",
+    "targetVersion": "1.0.6",
+    "installOptionsTemplate": {}
+  },
+  {
+    "name": "cluster-autoscaler",
+    "version": "1.0.6",
+    "minKubeVersion": "1.20",
+    "supportedKubeRange": ">=1.20.0 <1.25.0",
+    "minOCPVersion": "4.6",
+    "supportedOCPRange": ">=4.6.0 <4.12.0",
+    "targetVersion": "1.0.6",
+    "installOptionsTemplate": {}
+  },
+  {
+    "name": "cluster-autoscaler",
+    "version": "1.0.7",
+    "minKubeVersion": "1.20",
+    "supportedKubeRange": ">=1.20.0 <1.26.0",
+    "minOCPVersion": "4.7",
+    "supportedOCPRange": ">=4.7.0 <4.13.0",
+    "targetVersion": "1.0.6",
+    "installOptionsTemplate": {}
+  },
+  {
+    "name": "cluster-autoscaler",
+    "version": "1.1.0",
+    "minKubeVersion": "1.20",
+    "supportedKubeRange": ">=1.20.0 <1.24.0",
+    "minOCPVersion": "4.6",
+    "supportedOCPRange": ">=4.6.0 <4.11.0",
+    "targetVersion": "1.0.6",
+    "installOptionsTemplate": {}
+  },
+  {
+    "name": "csutil-experimental",
+    "version": "1.0.0",
+    "minKubeVersion": "1.20",
+    "supportedKubeRange": ">=1.20.0 <1.27.0",
+    "minOCPVersion": "4.6",
+    "supportedOCPRange": ">=4.6.0 <4.13.0",
+    "targetVersion": "1.0.0",
+    "installOptionsTemplate": {}
+  },
+  {
+    "name": "image-key-synchronizer",
+    "version": "1.0.0",
+    "minOCPVersion": "4.4",
+    "supportedOCPRange": ">=4.4.0 <4.13.0",
+    "targetVersion": "1.0.0",
+    "installOptionsTemplate": {}
+  },
+  {
+    "name": "static-route",
+    "version": "1.0.0",
+    "minKubeVersion": "1.19",
+    "supportedKubeRange": ">=1.19.0 <1.27.0",
+    "minOCPVersion": "4.5",
+    "supportedOCPRange": ">=4.5.0 <4.13.0",
+    "targetVersion": "1.0.0",
+    "installOptionsTemplate": {}
+  }
+]
