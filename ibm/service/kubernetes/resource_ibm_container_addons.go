@@ -113,6 +113,18 @@ func ResourceIBMContainerAddOns() *schema.Resource {
 							Computed:    true,
 							Description: "VLAN spanning required for multi-zone clusters",
 						},
+						"parameters_json": {
+							Type:     schema.TypeString,
+							Optional: true,
+							StateFunc: func(v interface{}) string {
+								json, err := flex.NormalizeJSONString(v)
+								if err != nil {
+									return fmt.Sprintf("%q", err.Error())
+								}
+								return json
+							},
+							Description: "Arbitrary parameters to pass in Json string format",
+						},
 					},
 				},
 			},
@@ -146,10 +158,14 @@ func resourceIBMContainerAddOnsCreate(d *schema.ResourceData, meta interface{}) 
 	}
 	cluster := d.Get("cluster").(string)
 	existingAddons, err := addOnAPI.GetAddons(cluster, targetEnv)
+	log.Println("\n------------------\n\nTHIS IS THE VALUE 1\n", existingAddons)
+	log.Println("--------------------")
 	if err != nil {
 		log.Println("[ WARN ] Error getting Addons.")
 	}
 	payload, err := expandAddOns(d, meta, cluster, targetEnv, existingAddons)
+	log.Println("\n------------------\n\nTHIS IS THE VALUE 90\n", payload)
+	log.Println("--------------------")
 	if err != nil {
 		return fmt.Errorf("[ERROR] Error in getting addons from expandAddOns during Create: %s", err)
 	}
@@ -168,6 +184,8 @@ func resourceIBMContainerAddOnsCreate(d *schema.ResourceData, meta interface{}) 
 }
 func expandAddOns(d *schema.ResourceData, meta interface{}, cluster string, targetEnv v1.ClusterTargetHeader, existingAddons []v1.AddOn) (addOns v1.ConfigureAddOns, err error) {
 	addOnSet := d.Get("addons").(*schema.Set).List()
+	log.Println("\n------------------\n\nTHIS IS THE VALUE 0 \n", addOnSet)
+	log.Println("--------------------")
 	if existingAddons == nil || len(existingAddons) < 1 {
 		for _, aoSet := range addOnSet {
 			ao, _ := aoSet.(map[string]interface{})
@@ -177,8 +195,12 @@ func expandAddOns(d *schema.ResourceData, meta interface{}, cluster string, targ
 			if ao["version"] != nil {
 				addOn.Version = ao["version"].(string)
 			}
+			addOn.Options = ao["parameters_json"]
 			addOns.AddonsList = append(addOns.AddonsList, addOn)
+
 		}
+		log.Println("\n------------------\n\nTHIS IS THE VALUE 100 \n", addOns)
+		log.Println("--------------------")
 	}
 	if len(existingAddons) > 0 {
 		csClient, err := meta.(conns.ClientSession).ContainerAPI()
@@ -240,9 +262,12 @@ func expandAddOns(d *schema.ResourceData, meta interface{}, cluster string, targ
 				addOn := v1.AddOn{
 					Name: ao["name"].(string),
 				}
+				log.Println("\n------------------\n\nTHIS IS THE VALUE x \n", addOn)
+				log.Println("--------------------")
 				if ao["version"] != nil {
 					addOn.Version = ao["version"].(string)
 				}
+				addOn.Options = ao["parameters_json"]
 				addOns.AddonsList = append(addOns.AddonsList, addOn)
 			}
 		}
@@ -287,6 +312,9 @@ func resourceIBMContainerAddOnsRead(d *schema.ResourceData, meta interface{}) er
 	cluster := d.Id()
 
 	result, err := addOnAPI.GetAddons(cluster, targetEnv)
+	log.Println("\n------------------\n\nTHIS IS THE VALUE 2 \n", result)
+	log.Println("--------------------")
+
 	if err != nil {
 		return err
 	}
@@ -496,6 +524,8 @@ func waitForContainerAddOns(d *schema.ResourceData, meta interface{}, cluster, t
 				return nil, "", err
 			}
 			addOns, err := addOnClient.AddOns().GetAddons(cluster, targetEnv)
+			log.Println("\n------------------\n\nTHIS IS THE VALUE 3 \n", addOns)
+			log.Println("--------------------")
 			if err != nil {
 				if apiErr, ok := err.(bmxerror.RequestFailure); ok && apiErr.StatusCode() == 404 {
 					return nil, "", fmt.Errorf("[ERROR] The resource addons %s does not exist anymore: %v", d.Id(), err)
@@ -531,6 +561,7 @@ func resourceIBMContainerAddOnsExists(d *schema.ResourceData, meta interface{}) 
 	cluster := d.Id()
 
 	_, err = addOnAPI.GetAddons(cluster, targetEnv)
+
 	if err != nil {
 		if apiErr, ok := err.(bmxerror.RequestFailure); ok {
 			if apiErr.StatusCode() == 404 {
