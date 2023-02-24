@@ -122,8 +122,9 @@ func ResourceIBMContainerAddOns() *schema.Resource {
 							Description: "The addon Options",
 						},
 						"parameters_json": {
-							Type:     schema.TypeString,
-							Optional: true,
+							Type:             schema.TypeString,
+							Optional:         true,
+							DiffSuppressFunc: flex.ApplyOnce,
 							StateFunc: func(v interface{}) string {
 								json, err := flex.NormalizeJSONString(v)
 								if err != nil {
@@ -170,8 +171,6 @@ func resourceIBMContainerAddOnsCreate(d *schema.ResourceData, meta interface{}) 
 	if err != nil {
 		log.Println("[ WARN ] Error getting Addons.")
 	}
-	/////////////////////////////////////////////////////////////////////
-	/////////////////////////////////////////////////////////////////////
 
 	payload, err := expandAddOns(d, meta, cluster, targetEnv, existingAddons)
 	if err != nil {
@@ -194,6 +193,7 @@ func resourceIBMContainerAddOnsCreate(d *schema.ResourceData, meta interface{}) 
 	return resourceIBMContainerAddOnsRead(d, meta)
 }
 
+// Function to get an Add On's Parameters and Set them with the users value
 func getOptions(d *schema.ResourceData, meta interface{}) (string, error) {
 
 	csClient, err := meta.(conns.ClientSession).ContainerAPI()
@@ -204,33 +204,40 @@ func getOptions(d *schema.ResourceData, meta interface{}) (string, error) {
 	addOnAPI := csClient.AddOns()
 
 	addOn, _ := d.Get("addons").(*schema.Set).List()[0].(map[string]interface{})
+
+	// Check if parameters are given in terraform, if no, then return
+	if addOn["parameters_json"] == "" {
+		return "", nil
+	}
 	var params map[string]interface{}
 	json.Unmarshal([]byte(addOn["parameters_json"].(string)), &params)
 
-	newResult, _ := addOnAPI.ListAddons()
-	log.Println("\n------------------\n\nTHIS IS THE VALUE 9000\n", newResult)
-	log.Println("--------------------")
+	// Get the list of Addons with their parameters
+	addOnList, err := addOnAPI.ListAddons()
 
-	optionParams, _ := getAddonOptions(d, newResult)
+	if err != nil {
+		return "", err
+	}
 
-	log.Println("\n------------------\n\nThis is the value of options data\n", optionParams["content"])
-	log.Println("--------------------")
+	// Get the parameter list for the given AddOn Name and Version
+	configMap, err := getAddonOptions(d, addOnList)
 
-	var optionparams map[string]interface{}
-	yaml.Unmarshal([]byte(optionParams["content"].(string)), &optionparams)
+	if err != nil {
 
-	log.Println("\n------------------\n\nThis is the value of options data after unmarshal\n", optionparams)
-	log.Println("--------------------")
+		return "", err
 
-	result, _ := validateAddonOptions(params, optionparams)
+	}
 
-	if result {
+	var optionParams map[string]interface{}
+	yaml.Unmarshal([]byte(configMap["content"].(string)), &optionParams)
 
-		log.Println("\nParameters\n", updateAddOnOptions(params, optionparams))
-		data := updateAddOnOptions(params, optionparams)
+	// Check if correct AddOn Parameters are provided by the user
+	result, err := validateAddonOptions(params, optionParams)
+
+	if result && err == nil {
+
+		data := updateAddOnOptions(params, optionParams)
 		x, _ := yaml.Marshal(&data)
-		log.Println("Marshalled Value \n", string(x))
-
 		return string(x), nil
 
 	}
@@ -239,13 +246,10 @@ func getOptions(d *schema.ResourceData, meta interface{}) (string, error) {
 
 }
 
+// Function to get the required addOn Params, by iterating through the list of AddOns
 func getAddonOptions(d *schema.ResourceData, result []v1.AddOn) (options map[string]interface{}, err error) {
 	addOn, _ := d.Get("addons").(*schema.Set).List()[0].(map[string]interface{})
 	for _, value := range result {
-		log.Println("This is the Value Name", value.Name)
-		log.Println("This is the Value Version", value.Version)
-		log.Println("This is the addOn Name", addOn["name"].(string))
-		log.Println("This is the addOn Version", addOn["version"].(string))
 		if (value.Name == addOn["name"].(string)) && (value.Version == addOn["version"].(string)) {
 
 			return value.InstallOptionsTemplate.(map[string]interface{}), nil
@@ -254,13 +258,11 @@ func getAddonOptions(d *schema.ResourceData, result []v1.AddOn) (options map[str
 
 	}
 	var e map[string]interface{}
-	return e, fmt.Errorf("[ERROR] The given addon is not provided with upgradable or updatable version")
+	return e, fmt.Errorf("[ERROR] Incorrect AddOn Name or Version provided")
 }
 
 func expandAddOns(d *schema.ResourceData, meta interface{}, cluster string, targetEnv v1.ClusterTargetHeader, existingAddons []v1.AddOn) (addOns v1.ConfigureAddOns, err error) {
 	addOnSet := d.Get("addons").(*schema.Set).List()
-	log.Println("\n------------------\n\nTHIS IS THE VALUE 0 \n", addOnSet)
-	log.Println("--------------------")
 	if existingAddons == nil || len(existingAddons) < 1 {
 		for _, aoSet := range addOnSet {
 			ao, _ := aoSet.(map[string]interface{})
@@ -270,7 +272,14 @@ func expandAddOns(d *schema.ResourceData, meta interface{}, cluster string, targ
 			if ao["version"] != nil {
 				addOn.Version = ao["version"].(string)
 			}
-			addOn.Options, _ = getOptions(d, meta)
+			addonOptions, err := getOptions(d, meta)
+			if err != nil {
+				return addOns, err
+			}
+			if addonOptions != "" {
+				addOn.Options = addonOptions
+			}
+
 			addOns.AddonsList = append(addOns.AddonsList, addOn)
 
 		}
@@ -337,12 +346,18 @@ func expandAddOns(d *schema.ResourceData, meta interface{}, cluster string, targ
 				addOn := v1.AddOn{
 					Name: ao["name"].(string),
 				}
-				log.Println("\n------------------\n\nTHIS IS THE VALUE x \n", addOn)
-				log.Println("--------------------")
+
 				if ao["version"] != nil {
 					addOn.Version = ao["version"].(string)
 				}
-				addOn.Options, _ = getOptions(d, meta)
+				addonOptions, err := getOptions(d, meta)
+				if err != nil {
+					return addOns, err
+				}
+
+				if addonOptions != "" {
+					addOn.Options = addonOptions
+				}
 				addOns.AddonsList = append(addOns.AddonsList, addOn)
 			}
 		}
@@ -387,8 +402,6 @@ func resourceIBMContainerAddOnsRead(d *schema.ResourceData, meta interface{}) er
 	cluster := d.Id()
 
 	result, err := addOnAPI.GetAddons(cluster, targetEnv)
-	log.Println("\n------------------\n\nTHIS IS THE VALUE 2 \n", result)
-	log.Println("--------------------")
 
 	if err != nil {
 		return err
@@ -601,8 +614,7 @@ func waitForContainerAddOns(d *schema.ResourceData, meta interface{}, cluster, t
 				return nil, "", err
 			}
 			addOns, err := addOnClient.AddOns().GetAddons(cluster, targetEnv)
-			log.Println("\n------------------\n\nTHIS IS THE VALUE 3 \n", addOns)
-			log.Println("--------------------")
+
 			if err != nil {
 				if apiErr, ok := err.(bmxerror.RequestFailure); ok && apiErr.StatusCode() == 404 {
 					return nil, "", fmt.Errorf("[ERROR] The resource addons %s does not exist anymore: %v", d.Id(), err)
@@ -660,19 +672,22 @@ func resourceIBMContainerAddonsHash(v interface{}) int {
 	return conns.String(buf.String())
 }
 
+// Check if correct parameters are provided by the user
 func validateAddonOptions(jsonInput map[string]interface{}, yamlDefault map[string]interface{}) (bool, error) {
 
 	for i, _ := range jsonInput {
 		if _, ok := yamlDefault["data"].(map[string]interface{})[i]; ok {
 			continue
 		} else {
-			return false, fmt.Errorf("[ERROR] Error defining container addons")
+			return false, fmt.Errorf("[ERROR] Parameter Mismatch")
 		}
 
 	}
 
 	return true, nil
 }
+
+// Set the Value of the Parameters provided by the user in terraform in the config map through index matching
 
 func updateAddOnOptions(jsonInput map[string]interface{}, yamlDefault map[string]interface{}) map[string]interface{} {
 
