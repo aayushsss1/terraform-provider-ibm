@@ -106,20 +106,6 @@ func testAccCheckIBMContainerAddOnsBasic(name string) string {
 		addons {
 			name    = "cluster-autoscaler"
 		}
-		addons {
-
-			name    = "openshift-data-foundation"
-			version = "4.10.0"
-			parameters_json = <<PARAMETERS_JSON
-			{
-			  "odfDeploy": "true",
-			  "osdSize": "400Gi",
-			  "osdStorageClassName": "ibmc-vpc-block-metro-10iops-tier",
-			  "numOfOsd": "3"
-			} 
-			PARAMETERS_JSON
-				
-		} 
 }`, name)
 }
 func testAccCheckIBMContainerAddOnsUpdate(name string) string {

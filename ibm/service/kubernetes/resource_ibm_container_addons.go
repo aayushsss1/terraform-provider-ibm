@@ -51,6 +51,12 @@ func ResourceIBMContainerAddOns() *schema.Resource {
 				ForceNew:    true,
 				Computed:    true,
 			},
+			"manage_all_addons": {
+				Type:        schema.TypeString,
+				Optional:    true,
+				Default:     "true",
+				Description: "Option to remove pre installed add ons on the cluster",
+			},
 			"addons": {
 				Type:     schema.TypeSet,
 				Required: true,
@@ -122,9 +128,10 @@ func ResourceIBMContainerAddOns() *schema.Resource {
 							Description: "The addon Options",
 						},
 						"parameters_json": {
-							Type:             schema.TypeString,
-							Optional:         true,
-							DiffSuppressFunc: flex.ApplyOnce,
+							Type:     schema.TypeString,
+							Optional: true,
+							// DiffSuppressFunc: flex.ApplyOnce,
+							Default: "",
 							StateFunc: func(v interface{}) string {
 								json, err := flex.NormalizeJSONString(v)
 								if err != nil {
@@ -165,6 +172,7 @@ func resourceIBMContainerAddOnsCreate(d *schema.ResourceData, meta interface{}) 
 	if err != nil {
 		return err
 	}
+
 	cluster := d.Get("cluster").(string)
 	existingAddons, err := addOnAPI.GetAddons(cluster, targetEnv)
 
@@ -177,7 +185,6 @@ func resourceIBMContainerAddOnsCreate(d *schema.ResourceData, meta interface{}) 
 		return fmt.Errorf("[ERROR] Error in getting addons from expandAddOns during Create: %s", err)
 	}
 	payload.Enable = true
-	// initially options
 
 	_, err = addOnAPI.ConfigureAddons(cluster, &payload, targetEnv)
 	if err != nil {
@@ -194,7 +201,7 @@ func resourceIBMContainerAddOnsCreate(d *schema.ResourceData, meta interface{}) 
 }
 
 // Function to get an Add On's Parameters and Set them with the users value
-func getOptions(d *schema.ResourceData, meta interface{}) (string, error) {
+func getOptions(addOn map[string]interface{}, d *schema.ResourceData, meta interface{}) (string, error) {
 
 	csClient, err := meta.(conns.ClientSession).ContainerAPI()
 	if err != nil {
@@ -202,8 +209,6 @@ func getOptions(d *schema.ResourceData, meta interface{}) (string, error) {
 	}
 
 	addOnAPI := csClient.AddOns()
-
-	addOn, _ := d.Get("addons").(*schema.Set).List()[0].(map[string]interface{})
 
 	// Check if parameters are given in terraform, if no, then return
 	if addOn["parameters_json"] == "" {
@@ -220,7 +225,7 @@ func getOptions(d *schema.ResourceData, meta interface{}) (string, error) {
 	}
 
 	// Get the parameter list for the given AddOn Name and Version
-	configMap, err := getAddonOptions(d, addOnList)
+	configMap, err := getAddonOptions(addOn, d, addOnList)
 
 	if err != nil {
 
@@ -247,8 +252,7 @@ func getOptions(d *schema.ResourceData, meta interface{}) (string, error) {
 }
 
 // Function to get the required addOn Params, by iterating through the list of AddOns
-func getAddonOptions(d *schema.ResourceData, result []v1.AddOn) (options map[string]interface{}, err error) {
-	addOn, _ := d.Get("addons").(*schema.Set).List()[0].(map[string]interface{})
+func getAddonOptions(addOn map[string]interface{}, d *schema.ResourceData, result []v1.AddOn) (options map[string]interface{}, err error) {
 	for _, value := range result {
 		if (value.Name == addOn["name"].(string)) && (value.Version == addOn["version"].(string)) {
 
@@ -263,6 +267,7 @@ func getAddonOptions(d *schema.ResourceData, result []v1.AddOn) (options map[str
 
 func expandAddOns(d *schema.ResourceData, meta interface{}, cluster string, targetEnv v1.ClusterTargetHeader, existingAddons []v1.AddOn) (addOns v1.ConfigureAddOns, err error) {
 	addOnSet := d.Get("addons").(*schema.Set).List()
+
 	if existingAddons == nil || len(existingAddons) < 1 {
 		for _, aoSet := range addOnSet {
 			ao, _ := aoSet.(map[string]interface{})
@@ -272,7 +277,7 @@ func expandAddOns(d *schema.ResourceData, meta interface{}, cluster string, targ
 			if ao["version"] != nil {
 				addOn.Version = ao["version"].(string)
 			}
-			addonOptions, err := getOptions(d, meta)
+			addonOptions, err := getOptions(ao, d, meta)
 			if err != nil {
 				return addOns, err
 			}
@@ -326,12 +331,13 @@ func expandAddOns(d *schema.ResourceData, meta interface{}, cluster string, targ
 							}
 
 							if ao["version"] != nil {
-								rmParam.Version = ao["version"].(string)
+								addParam.Version = ao["version"].(string)
 							}
 
 							addParams.AddonsList = append(addParams.AddonsList, addParam)
 							addParams.Enable = true
 							_, err = addOnAPI.ConfigureAddons(cluster, &addParams, targetEnv)
+
 							if err != nil {
 								return addOns, fmt.Errorf("[ERROR] Error installing addon %s  on %s during update : %s", d.Id(), ao["name"], err)
 							}
@@ -350,7 +356,7 @@ func expandAddOns(d *schema.ResourceData, meta interface{}, cluster string, targ
 				if ao["version"] != nil {
 					addOn.Version = ao["version"].(string)
 				}
-				addonOptions, err := getOptions(d, meta)
+				addonOptions, err := getOptions(ao, d, meta)
 				if err != nil {
 					return addOns, err
 				}
@@ -388,6 +394,7 @@ func updateAddOnVersion(d *schema.ResourceData, meta interface{}, u map[string]i
 
 	return nil
 }
+
 func resourceIBMContainerAddOnsRead(d *schema.ResourceData, meta interface{}) error {
 	csClient, err := meta.(conns.ClientSession).ContainerAPI()
 	if err != nil {
@@ -407,6 +414,18 @@ func resourceIBMContainerAddOnsRead(d *schema.ResourceData, meta interface{}) er
 		return err
 	}
 	d.Set("cluster", cluster)
+	manageAllAddons := d.Get("manage_all_addons")
+	if manageAllAddons == "false" {
+
+		addOns, err := flattenAddOn(d, result)
+		if err != nil {
+			fmt.Printf("Error Flattening Addon list %s", err)
+		}
+		d.Set("resource_group_id", targetEnv.ResourceGroup)
+		d.Set("addons", addOns)
+		return nil
+	}
+
 	addOns, err := flattenAddOns(result)
 	if err != nil {
 		fmt.Printf("Error Flattening Addons list %s", err)
@@ -414,6 +433,52 @@ func resourceIBMContainerAddOnsRead(d *schema.ResourceData, meta interface{}) er
 	d.Set("resource_group_id", targetEnv.ResourceGroup)
 	d.Set("addons", addOns)
 	return nil
+}
+
+func flattenAddOn(d *schema.ResourceData, result []v1.AddOn) (resp *schema.Set, err error) {
+
+	add_On := d.Get("addons").(*schema.Set).List()
+
+	addOns := []interface{}{}
+	for _, aoSet := range add_On {
+		ao, _ := aoSet.(map[string]interface{})
+		for _, addOn := range result {
+			if ao["name"] == addOn.Name {
+				record := map[string]interface{}{}
+				record["name"] = addOn.Name
+				record["version"] = addOn.Version
+				if len(addOn.AllowedUpgradeVersion) > 0 {
+					record["allowed_upgrade_versions"] = addOn.AllowedUpgradeVersion
+				}
+				record["deprecated"] = addOn.Deprecated
+				record["health_state"] = addOn.HealthState
+				record["health_status"] = addOn.HealthStatus
+
+				if addOn.MinKubeVersion != "" {
+					record["min_kube_version"] = addOn.MinKubeVersion
+				}
+				if addOn.MinOCPVersion != "" {
+					record["min_ocp_version"] = addOn.MinOCPVersion
+				}
+				if addOn.SupportedKubeRange != "" {
+					record["supported_kube_range"] = addOn.SupportedKubeRange
+				}
+				if addOn.TargetVersion != "" {
+					record["target_version"] = addOn.TargetVersion
+				}
+
+				record["vlan_spanning_required"] = addOn.VlanSpanningRequired
+
+				record["options"] = addOn.Options
+
+				addOns = append(addOns, record)
+				break
+			}
+		}
+	}
+
+	return schema.NewSet(resourceIBMContainerAddonsHash, addOns), nil
+
 }
 func flattenAddOns(result []v1.AddOn) (resp *schema.Set, err error) {
 	addOns := []interface{}{}
@@ -508,7 +573,7 @@ func resourceIBMContainerAddOnsUpdate(d *schema.ResourceData, meta interface{}) 
 							Name: newPack["name"].(string),
 						}
 						if newPack["version"] != nil {
-							rmParam.Version = newPack["version"].(string)
+							addParam.Version = newPack["version"].(string)
 						}
 						addParams.AddonsList = append(addParams.AddonsList, addParam)
 						addParams.Enable = true
