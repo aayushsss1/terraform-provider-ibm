@@ -52,10 +52,10 @@ func ResourceIBMContainerAddOns() *schema.Resource {
 				Computed:    true,
 			},
 			"manage_all_addons": {
-				Type:        schema.TypeString,
+				Type:        schema.TypeBool,
 				Optional:    true,
-				Default:     "true",
-				Description: "Option to remove pre installed add ons on the cluster",
+				Default:     true,
+				Description: "To manage all add-ons installed in the cluster using terraform by importing it into the state file",
 			},
 			"addons": {
 				Type:     schema.TypeSet,
@@ -124,14 +124,12 @@ func ResourceIBMContainerAddOns() *schema.Resource {
 						"options": {
 							Type:        schema.TypeString,
 							Computed:    true,
-							ForceNew:    false,
-							Description: "The addon Options",
+							Description: "The add-on options",
 						},
 						"parameters_json": {
 							Type:     schema.TypeString,
 							Optional: true,
-							// DiffSuppressFunc: flex.ApplyOnce,
-							Default: "",
+							Default:  "",
 							StateFunc: func(v interface{}) string {
 								json, err := flex.NormalizeJSONString(v)
 								if err != nil {
@@ -139,7 +137,7 @@ func ResourceIBMContainerAddOns() *schema.Resource {
 								}
 								return json
 							},
-							Description: "Arbitrary parameters to pass in Json string format",
+							Description: "Add-On parameters to pass in a JSON string format.",
 						},
 					},
 				},
@@ -214,8 +212,8 @@ func getOptions(addOn map[string]interface{}, d *schema.ResourceData, meta inter
 	if addOn["parameters_json"] == "" {
 		return "", nil
 	}
-	var params map[string]interface{}
-	json.Unmarshal([]byte(addOn["parameters_json"].(string)), &params)
+	var addonParams map[string]interface{}
+	json.Unmarshal([]byte(addOn["parameters_json"].(string)), &addonParams)
 
 	// Get the list of Addons with their parameters
 	addOnList, err := addOnAPI.ListAddons()
@@ -225,7 +223,7 @@ func getOptions(addOn map[string]interface{}, d *schema.ResourceData, meta inter
 	}
 
 	// Get the parameter list for the given AddOn Name and Version
-	configMap, err := getAddonOptions(addOn, d, addOnList)
+	configMap, err := getAddonTemplateOptions(addOn, d, addOnList)
 
 	if err != nil {
 
@@ -237,12 +235,12 @@ func getOptions(addOn map[string]interface{}, d *schema.ResourceData, meta inter
 	yaml.Unmarshal([]byte(configMap["content"].(string)), &optionParams)
 
 	// Check if correct AddOn Parameters are provided by the user
-	result, err := validateAddonOptions(params, optionParams)
+	result, err := validateAddonOptions(&addonParams, &optionParams)
 
 	if result && err == nil {
 
-		data := updateAddOnOptions(params, optionParams)
-		x, _ := yaml.Marshal(&data)
+		updateAddOnOptions(&addonParams, &optionParams)
+		x, _ := yaml.Marshal(&optionParams)
 		return string(x), nil
 
 	}
@@ -252,7 +250,7 @@ func getOptions(addOn map[string]interface{}, d *schema.ResourceData, meta inter
 }
 
 // Function to get the required addOn Params, by iterating through the list of AddOns
-func getAddonOptions(addOn map[string]interface{}, d *schema.ResourceData, result []v1.AddOn) (options map[string]interface{}, err error) {
+func getAddonTemplateOptions(addOn map[string]interface{}, d *schema.ResourceData, result []v1.AddOn) (options map[string]interface{}, err error) {
 	for _, value := range result {
 		if (value.Name == addOn["name"].(string)) && (value.Version == addOn["version"].(string)) {
 
@@ -261,8 +259,7 @@ func getAddonOptions(addOn map[string]interface{}, d *schema.ResourceData, resul
 		}
 
 	}
-	var e map[string]interface{}
-	return e, fmt.Errorf("[ERROR] Incorrect AddOn Name or Version provided")
+	return nil, fmt.Errorf("[ERROR] Incorrect AddOn Name or Version provided")
 }
 
 func expandAddOns(d *schema.ResourceData, meta interface{}, cluster string, targetEnv v1.ClusterTargetHeader, existingAddons []v1.AddOn) (addOns v1.ConfigureAddOns, err error) {
@@ -414,19 +411,17 @@ func resourceIBMContainerAddOnsRead(d *schema.ResourceData, meta interface{}) er
 		return err
 	}
 	d.Set("cluster", cluster)
-	manageAllAddons := d.Get("manage_all_addons")
-	if manageAllAddons == "false" {
+	manageAllAddons := d.Get("manage_all_addons").(bool)
+	var addOns *schema.Set
+	if !manageAllAddons {
 
-		addOns, err := flattenAddOn(d, result)
-		if err != nil {
-			fmt.Printf("Error Flattening Addon list %s", err)
-		}
-		d.Set("resource_group_id", targetEnv.ResourceGroup)
-		d.Set("addons", addOns)
-		return nil
+		addOns, err = flattenAddOn(d, result)
+
+	} else {
+
+		addOns, err = flattenAddOns(result)
 	}
 
-	addOns, err := flattenAddOns(result)
 	if err != nil {
 		fmt.Printf("Error Flattening Addons list %s", err)
 	}
@@ -738,13 +733,13 @@ func resourceIBMContainerAddonsHash(v interface{}) int {
 }
 
 // Check if correct parameters are provided by the user
-func validateAddonOptions(jsonInput map[string]interface{}, yamlDefault map[string]interface{}) (bool, error) {
+func validateAddonOptions(jsonInput *map[string]interface{}, yamlDefault *map[string]interface{}) (bool, error) {
 
-	for i, _ := range jsonInput {
-		if _, ok := yamlDefault["data"].(map[string]interface{})[i]; ok {
+	for i, _ := range *jsonInput {
+		if _, ok := (*yamlDefault)["data"].(map[string]interface{})[i]; ok {
 			continue
 		} else {
-			return false, fmt.Errorf("[ERROR] Parameter Mismatch")
+			return false, fmt.Errorf("[ERROR] Parameter Mismatch - %s not found", i)
 		}
 
 	}
@@ -754,12 +749,9 @@ func validateAddonOptions(jsonInput map[string]interface{}, yamlDefault map[stri
 
 // Set the Value of the Parameters provided by the user in terraform in the config map through index matching
 
-func updateAddOnOptions(jsonInput map[string]interface{}, yamlDefault map[string]interface{}) map[string]interface{} {
+func updateAddOnOptions(jsonInput *map[string]interface{}, yamlDefault *map[string]interface{}) {
 
-	for i, v := range jsonInput {
-		yamlDefault["data"].(map[string]interface{})[i] = v.(string)
+	for i, v := range *jsonInput {
+		(*yamlDefault)["data"].(map[string]interface{})[i] = v.(string)
 	}
-
-	return yamlDefault
-
 }
