@@ -65,6 +65,13 @@ func ResourceIBMContainerVpcWorker() *schema.Resource {
 				Description: "Cluster name",
 			},
 
+			"sds": {
+				Type:        schema.TypeString,
+				Required:    true,
+				ForceNew:    true,
+				Description: "Name of SDS",
+			},
+
 			"replace_worker": {
 				Type:        schema.TypeString,
 				ForceNew:    true,
@@ -143,6 +150,15 @@ func resourceIBMContainerVpcWorkerCreate(d *schema.ResourceData, meta interface{
 	cluster_config, cc_ok := d.GetOk("kube_config_path")
 	check_ptx_status := d.Get("check_ptx_status").(bool)
 	clusterNameorID := d.Get("cluster_name").(string)
+	sds := d.Get("sds").(string)
+	var t Sds
+	log.Println("This is ODF!")
+	if sds == "ODF" {
+		t = odf{}
+		t.postWorkerReplace()
+		t.preWorkerReplace()
+		os.Exit(1)
+	}
 
 	if check_ptx_status {
 		//Validate & Check kubeconfig
