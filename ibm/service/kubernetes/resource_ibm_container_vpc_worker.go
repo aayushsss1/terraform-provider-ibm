@@ -155,9 +155,8 @@ func resourceIBMContainerVpcWorkerCreate(d *schema.ResourceData, meta interface{
 	log.Println("This is ODF!")
 	if sds == "ODF" {
 		t = odf{}
-		t.postWorkerReplace()
-		t.preWorkerReplace()
-		os.Exit(1)
+		// t.postWorkerReplace()
+		// t.preWorkerReplace()
 	}
 
 	if check_ptx_status {
@@ -177,10 +176,11 @@ func resourceIBMContainerVpcWorkerCreate(d *schema.ResourceData, meta interface{
 				return fmt.Errorf("[ERROR] Invalid kubeconfig,, failed to create clientset: %s", err)
 			}
 			//3. List pods from kube-system namespace
-			_, err = clientset.CoreV1().Pods("default").List(context.TODO(), metav1.ListOptions{})
+			pods, err := clientset.CoreV1().Pods("").List(context.TODO(), metav1.ListOptions{})
 			if err != nil {
 				return fmt.Errorf("[ERROR] Invalid kubeconfig, failed to list resource: %s", err)
 			}
+			log.Println("These are the pods", pods)
 		}
 		log.Printf("Kubeconfig is valid")
 	}
@@ -216,6 +216,9 @@ func resourceIBMContainerVpcWorkerCreate(d *schema.ResourceData, meta interface{
 		return fmt.Errorf("[ERROR] Error getting container vpc worker node: %s", err)
 	}
 
+	log.Println("\nThis is the worker\n", worker)
+	t.preWorkerReplace(worker, cluster_config.(string))
+
 	cls, err := wkClient.Clusters().GetCluster(clusterNameorID, targetEnv)
 	if err != nil {
 		return fmt.Errorf("[ERROR] Error retrieving conatiner vpc cluster: %s", err)
@@ -230,11 +233,14 @@ func resourceIBMContainerVpcWorkerCreate(d *schema.ResourceData, meta interface{
 		return fmt.Errorf("[ERROR] Error retrieving workers for cluster: %s", err)
 	}
 
+	log.Println("\nThese are the workers\n", workers)
+
 	for index, _worker := range workers {
 		workersInfo[_worker.ID] = index
 	}
 	workersCount := len(workers)
 
+	// time.Sleep(time.Second * 100)
 	// check if change is present in MAJOR.MINOR version or in PATCH version
 	if check_ptx_status || (worker.KubeVersion.Actual != worker.KubeVersion.Target) {
 		_, err = wkClient.Workers().ReplaceWokerNode(cls.ID, worker.ID, targetEnv)
@@ -282,20 +288,22 @@ func resourceIBMContainerVpcWorkerCreate(d *schema.ResourceData, meta interface{
 		}
 	}
 
-	if check_ptx_status {
-		err = checkPortworxStatus(d, cluster_config.(string))
-		if err != nil {
-			return err
-		}
-	}
-
 	//Worker reloaded successfully
 	currentStatus = true
+
+	// if check_ptx_status {
+	// 	err = checkPortworxStatus(d, cluster_config.(string))
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// }
+
 	return resourceIBMContainerVpcWorkerRead(d, meta)
 }
 
 func resourceIBMContainerVpcWorkerRead(d *schema.ResourceData, meta interface{}) error {
 	//Not importing this resource.
+	// os.Exit(1)
 	return nil
 }
 
