@@ -298,6 +298,8 @@ func resourceIBMContainerVpcWorkerCreate(d *schema.ResourceData, meta interface{
 	// 	}
 	// }
 
+	t.postWorkerReplace(worker, cluster_config.(string))
+
 	return resourceIBMContainerVpcWorkerRead(d, meta)
 }
 
