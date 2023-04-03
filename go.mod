@@ -3,7 +3,7 @@ module github.com/IBM-Cloud/terraform-provider-ibm
 go 1.18
 
 require (
-	github.com/IBM-Cloud/bluemix-go v0.0.0-20230120122421-afb48116b8f1
+	github.com/IBM-Cloud/bluemix-go v0.0.0-20230330100610-b58456b0d67e
 	github.com/IBM-Cloud/container-services-go-sdk v0.0.0-20230118060037-101bda076037
 	github.com/IBM-Cloud/power-go-client v1.2.2
 	github.com/IBM/apigateway-go-sdk v0.0.0-20210714141226-a5d5d49caaca
@@ -177,4 +177,4 @@ replace github.com/softlayer/softlayer-go v1.0.3 => github.com/IBM-Cloud/softlay
 
 replace github.com/dgrijalva/jwt-go v3.2.0+incompatible => github.com/golang-jwt/jwt v3.2.1+incompatible
 
-replace github.com/IBM-Cloud/bluemix-go v0.0.0-20230120122421-afb48116b8f1 => github.com/aayushsss1/bluemix-go v0.0.0-20230217091526-fc7597f06d2c
+// replace github.com/IBM-Cloud/bluemix-go v0.0.0-20230120122421-afb48116b8f1 => github.com/aayushsss1/bluemix-go v0.0.0-20230217091526-fc7597f06d2c
