@@ -305,7 +305,7 @@ func resourceIBMContainerVpcWorkerCreate(d *schema.ResourceData, meta interface{
 
 func resourceIBMContainerVpcWorkerRead(d *schema.ResourceData, meta interface{}) error {
 	//Not importing this resource.
-	// os.Exit(1)
+	os.Exit(1)
 	return nil
 }
 

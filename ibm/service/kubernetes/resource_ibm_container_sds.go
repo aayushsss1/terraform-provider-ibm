@@ -2,23 +2,31 @@ package kubernetes
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"time"
 
 	v2 "github.com/IBM-Cloud/bluemix-go/api/container/containerv2"
 	templatev1 "github.com/openshift/api/template/v1"
 	templatev1client "github.com/openshift/client-go/template/clientset/versioned/typed/template/v1"
+	cephv1 "github.com/rook/rook/pkg/apis/ceph.rook.io/v1"
 	corev1 "k8s.io/api/core/v1"
 	policy "k8s.io/api/policy/v1beta1"
+	apierror "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/oidc"
 	"k8s.io/client-go/tools/clientcmd"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type Sds interface {
@@ -80,6 +88,8 @@ func (o odf) preWorkerReplace(worker v2.Worker, clusterConfig string) error {
 		return fmt.Errorf("Node %s not found\n", node)
 	}
 
+	time.Sleep(time.Second * 45)
+
 	// Cordon the node
 	n.Spec.Unschedulable = true
 	_, err = clientset.CoreV1().Nodes().Update(context.Background(), n, metav1.UpdateOptions{})
@@ -102,6 +112,8 @@ func (o odf) preWorkerReplace(worker v2.Worker, clusterConfig string) error {
 	}
 
 	fmt.Printf("Node %s has been drained\n", node)
+
+	time.Sleep(time.Second * 45)
 
 	return nil
 
@@ -162,6 +174,8 @@ func scalePods(clientset *kubernetes.Clientset, workerName string, appLabel stri
 
 func (o odf) postWorkerReplace(worker v2.Worker, clusterConfig string) error {
 
+	log.Println("In Post Worker Replace")
+
 	config, err := clientcmd.BuildConfigFromFlags("", clusterConfig)
 
 	if err != nil {
@@ -180,6 +194,8 @@ func (o odf) postWorkerReplace(worker v2.Worker, clusterConfig string) error {
 		log.Fatal(err)
 	}
 
+	log.Println("Scaling Up Deployments")
+	// Scale Up Deployments that have been Brought down in pre worker replace
 	for _, v := range deploymentList {
 
 		if !strings.Contains(v, "crashcollector") {
@@ -203,29 +219,64 @@ func (o odf) postWorkerReplace(worker v2.Worker, clusterConfig string) error {
 
 	}
 
-	pods, err := clientset.CoreV1().Pods("openshift-storage").List(context.TODO(), metav1.ListOptions{})
+	deploymentList = nil
+
+	time.Sleep(time.Second * 60)
+
+	workerName := worker.NetworkInterfaces[0].IpAddress
+
+	log.Println("This is the Worker Name", workerName)
+
+	// Check the status of the OSD pods, if failed then run job
+
+	labelSelector := metav1.LabelSelector{MatchLabels: map[string]string{"app": "rook-ceph-osd"}}
+	listOptions := metav1.ListOptions{
+		LabelSelector: labels.Set(labelSelector.MatchLabels).String(),
+		FieldSelector: "spec.nodeName=" + workerName}
+
+	pods, err := clientset.CoreV1().Pods("openshift-storage").List(context.TODO(), listOptions)
 
 	if err != nil {
 
 		return fmt.Errorf("Error getting Pods")
 
 	}
+
+	var osdID string
+
 	for _, pod := range pods.Items {
 
-		if (pod.Labels["app"] == "rook-ceph-osd") && (pod.Status.Phase != "Running") {
-
-			ExecuteTemplate()
-
+		log.Printf("Pod Name %s is %s/n", pod.Name, pod.Status.Phase)
+		if pod.Status.Phase != "Running" {
+			osdID = osdID + pod.Labels["ceph-osd-id"]
 		}
 	}
 
-	return nil
+	if len(osdID) > 0 {
+		ExecuteTemplate(osdID)
+	}
+
+	time.Sleep(time.Second * 60)
+
+	// Check Ceph Status if HEALTH OK then return success!
+	log.Println("Fetching Ceph Cluster Status")
+
+	err, healthStatus := fetchCephcluster(clusterConfig)
+
+	log.Println("Ceph Cluster Status", healthStatus)
+
+	if err == nil && healthStatus == "HEALTH_OK" {
+		log.Println("Worker Replace Done!")
+		return nil
+	}
+
+	return fmt.Errorf("Worker Replace Failed")
 
 }
 
 func int32Ptr(i int32) *int32 { return &i }
 
-func ExecuteTemplate() {
+func ExecuteTemplate(osdID string) {
 
 	kubeconfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
 		clientcmd.NewDefaultClientConfigLoadingRules(),
@@ -273,7 +324,7 @@ func ExecuteTemplate() {
 			Name: "parameters",
 		},
 		StringData: map[string]string{
-			"FAILED_OSD_IDS": "1",
+			"FAILED_OSD_IDS": osdID,
 		},
 	}, metav1.CreateOptions{})
 	if err != nil {
@@ -375,4 +426,40 @@ func ExecuteTemplate() {
 	if err != nil {
 		panic(err)
 	}
+}
+
+func fetchCephcluster(clusterConfig string) (error, string) {
+
+	config, _ := clientcmd.BuildConfigFromFlags("", clusterConfig)
+	scheme := runtime.NewScheme()
+	// +kubebuilder:scaffold:scheme
+	utilruntime.Must(cephv1.AddToScheme(scheme))
+	cntrlClient, err := client.New(config, client.Options{Scheme: scheme})
+	if err != nil {
+		return fmt.Errorf("Error getting config"), ""
+	}
+
+	cephcluster := &cephv1.CephCluster{}
+	var CephclusterGet []string
+
+	CephclusterGet = append(CephclusterGet, "\n Cephcluster Details \n \n", "NAME  DATADIRHOSTPATH   MONCOUNT   AGE   PHASE   MESSAGE  HEALTH\n")
+	err = cntrlClient.Get(context.Background(), types.NamespacedName{Name: "ocs-storagecluster-cephcluster", Namespace: "openshift-storage"}, cephcluster)
+	if err != nil && !apierror.IsNotFound(err) {
+		return err, ""
+	} else {
+		if apierror.IsNotFound(err) {
+			return fmt.Errorf("cephcluster not found"), ""
+		} else {
+			_, err := json.MarshalIndent(cephcluster, "", "  ")
+			if err != nil {
+				return err, ""
+			}
+
+		}
+		CephclusterGet = append(CephclusterGet, "\n", cephcluster.Name, cephcluster.Spec.DataDirHostPath, strconv.Itoa(cephcluster.Spec.Mon.Count), time.Now().Sub(cephcluster.CreationTimestamp.Time).String(), string(cephcluster.Status.Phase), cephcluster.Status.Message, cephcluster.Status.CephStatus.Health, "\n")
+		if err != nil {
+			return err, ""
+		}
+	}
+	return nil, CephclusterGet[9]
 }
