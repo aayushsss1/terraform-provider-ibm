@@ -40,10 +40,9 @@ type odf struct{}
 
 func (o odf) preWorkerReplace(worker v2.Worker, clusterConfig string) error {
 
-	log.Println("\nInside preWorkerReplace for ODF")
+	log.Println("Inside preWorkerReplace for ODF")
 
 	//1. Load the cluster config
-	log.Println("\nThis is the cluster config\n", clusterConfig)
 
 	config, err := clientcmd.BuildConfigFromFlags("", clusterConfig)
 
@@ -51,7 +50,7 @@ func (o odf) preWorkerReplace(worker v2.Worker, clusterConfig string) error {
 		return fmt.Errorf("[ERROR] Invalid kubeconfig, failed to set context: %s", err)
 	}
 
-	log.Println("\nConfig Made")
+	log.Println("Config Made")
 
 	//2. create the clientset
 	clientset, err := kubernetes.NewForConfig(config)
@@ -61,25 +60,32 @@ func (o odf) preWorkerReplace(worker v2.Worker, clusterConfig string) error {
 
 	// return nil
 	workerName := worker.NetworkInterfaces[0].IpAddress
-	log.Println("This is the Worker Name", workerName)
+	log.Println("This is the Worker to be replaced", workerName)
 
 	// Mon Pods
-	err = scalePods(clientset, workerName, "app", "rook-ceph-mon", "mon", 0)
+	err = scalePods(clientset, workerName, APP, monLabel, modId, 0)
 	if err != nil {
 		return fmt.Errorf("[ERROR] Error in Scaling")
 	}
 	// OSD Pods
-	err = scalePods(clientset, workerName, "app", "rook-ceph-osd", "ceph-osd-id", 0)
+	err = scalePods(clientset, workerName, APP, osdLabel, osdId, 0)
 	if err != nil {
 		return fmt.Errorf("[ERROR] Error in Scaling")
 	}
 	// Crash Collector
-	err = scalePods(clientset, workerName, "app", "rook-ceph-crashcollector", "node_name", 0)
+	err = scalePods(clientset, workerName, APP, crashcollectorLabel, crashcollectorId, 0)
 	if err != nil {
 		return fmt.Errorf("[ERROR] Error in Scaling")
 	}
 
-	time.Sleep(time.Second * 45)
+	for _, v := range deploymentList {
+		err = checkDeploymentStatus(clientset, 0, v)
+		if err != nil {
+			return err
+		}
+	}
+
+	log.Println("Deployments have been successfully scaled!")
 
 	node := workerName
 	n, err := clientset.CoreV1().Nodes().Get(context.Background(), node, metav1.GetOptions{})
@@ -88,8 +94,6 @@ func (o odf) preWorkerReplace(worker v2.Worker, clusterConfig string) error {
 		return fmt.Errorf("Node %s not found\n", node)
 	}
 
-	time.Sleep(time.Second * 45)
-
 	// Cordon the node
 	n.Spec.Unschedulable = true
 	_, err = clientset.CoreV1().Nodes().Update(context.Background(), n, metav1.UpdateOptions{})
@@ -97,7 +101,20 @@ func (o odf) preWorkerReplace(worker v2.Worker, clusterConfig string) error {
 		return fmt.Errorf("Unable to cordon node %s\n", node)
 	}
 
-	time.Sleep(time.Second * 45)
+	deadline := time.Now().Add(10 * time.Minute)
+	for {
+		n, err := clientset.CoreV1().Nodes().Get(context.Background(), node, metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("Node %s not found\n", node)
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("Unable to cordon node %s\n", node)
+		}
+		if n.Spec.Unschedulable {
+			log.Println("Node has been Cordoned")
+			break
+		}
+	}
 
 	//Drain the node
 	pods, err := clientset.CoreV1().Pods("").List(context.TODO(), metav1.ListOptions{FieldSelector: "spec.nodeName=" + workerName})
@@ -108,12 +125,10 @@ func (o odf) preWorkerReplace(worker v2.Worker, clusterConfig string) error {
 
 	for _, pod := range pods.Items {
 		EvictPod(clientset, pod.Name, pod.Namespace)
-		fmt.Printf("Pod %s has been evicted\n", pod.Name)
+		log.Printf("Pod %s has been evicted\n", pod.Name)
 	}
 
-	fmt.Printf("Node %s has been drained\n", node)
-
-	time.Sleep(time.Second * 45)
+	log.Printf("Node %s has been drained\n", node)
 
 	return nil
 
@@ -198,7 +213,7 @@ func (o odf) postWorkerReplace(worker v2.Worker, clusterConfig string) error {
 	// Scale Up Deployments that have been Brought down in pre worker replace
 	for _, v := range deploymentList {
 
-		if !strings.Contains(v, "crashcollector") {
+		if !strings.Contains(v, crashcollectorLabel) {
 
 			result, getErr := deploymentsClient.Get(context.TODO(), v, metav1.GetOptions{})
 
@@ -219,17 +234,28 @@ func (o odf) postWorkerReplace(worker v2.Worker, clusterConfig string) error {
 
 	}
 
-	deploymentList = nil
+	log.Println("Checking if Number of Replicas is 1")
 
-	time.Sleep(time.Second * 60)
+	for _, v := range deploymentList {
+		if !strings.Contains(v, crashcollectorLabel) {
+			err = checkDeploymentStatus(clientset, 1, v)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	log.Println("Deployments have been successfully scaled")
+
+	deploymentList = nil
 
 	workerName := worker.NetworkInterfaces[0].IpAddress
 
-	log.Println("This is the Worker Name", workerName)
+	log.Println("This is the New Worker Name", workerName)
 
 	// Check the status of the OSD pods, if failed then run job
 
-	labelSelector := metav1.LabelSelector{MatchLabels: map[string]string{"app": "rook-ceph-osd"}}
+	labelSelector := metav1.LabelSelector{MatchLabels: map[string]string{APP: osdLabel}}
 	listOptions := metav1.ListOptions{
 		LabelSelector: labels.Set(labelSelector.MatchLabels).String(),
 		FieldSelector: "spec.nodeName=" + workerName}
@@ -242,7 +268,7 @@ func (o odf) postWorkerReplace(worker v2.Worker, clusterConfig string) error {
 
 	}
 
-	var osdID string
+	osdID := ""
 
 	for _, pod := range pods.Items {
 
@@ -256,21 +282,26 @@ func (o odf) postWorkerReplace(worker v2.Worker, clusterConfig string) error {
 		ExecuteTemplate(osdID)
 	}
 
-	time.Sleep(time.Second * 60)
-
 	// Check Ceph Status if HEALTH OK then return success!
 	log.Println("Fetching Ceph Cluster Status")
 
-	err, healthStatus := fetchCephcluster(clusterConfig)
+	deadline := time.Now().Add(10 * time.Minute)
+	for {
 
-	log.Println("Ceph Cluster Status", healthStatus)
+		err, healthStatus := fetchCephcluster(clusterConfig)
 
-	if err == nil && healthStatus == "HEALTH_OK" {
-		log.Println("Worker Replace Done!")
-		return nil
+		log.Println("Ceph Cluster Status", healthStatus)
+
+		if time.Now().After(deadline) {
+			return fmt.Errorf("Ceph Cluster is not OK")
+
+		}
+
+		if err == nil && healthStatus == "HEALTH_OK" {
+			log.Println("Ceph Cluster is OK, Worker Replace Done!")
+			return nil
+		}
 	}
-
-	return fmt.Errorf("Worker Replace Failed")
 
 }
 
@@ -462,4 +493,30 @@ func fetchCephcluster(clusterConfig string) (error, string) {
 		}
 	}
 	return nil, CephclusterGet[9]
+}
+
+func checkDeploymentStatus(clientset *kubernetes.Clientset, replicas int32, deploymentName string) error {
+	log.Println("Checking Deployment Status....")
+	deploymentsClient := clientset.AppsV1().Deployments("openshift-storage")
+
+	deadline := time.Now().Add(20 * time.Minute)
+	for {
+		result, getErr := deploymentsClient.Get(context.TODO(), deploymentName, metav1.GetOptions{})
+
+		if getErr != nil {
+			return fmt.Errorf("failed to get latest version of deployment: %v", getErr)
+		}
+
+		log.Printf("Deployment Name:%s Replica Number:%d\n", deploymentName, result.Status.ReadyReplicas)
+		if time.Now().After(deadline) {
+			return fmt.Errorf("Failed to Scale Deployment")
+		}
+		if result.Status.ReadyReplicas == replicas {
+			fmt.Println("Deployment has been successfully scaled")
+			break
+		}
+	}
+
+	return nil
+
 }

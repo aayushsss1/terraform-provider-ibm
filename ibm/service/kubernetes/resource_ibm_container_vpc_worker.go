@@ -217,7 +217,11 @@ func resourceIBMContainerVpcWorkerCreate(d *schema.ResourceData, meta interface{
 	}
 
 	log.Println("\nThis is the worker\n", worker)
-	t.preWorkerReplace(worker, cluster_config.(string))
+	err = t.preWorkerReplace(worker, cluster_config.(string))
+	if err != nil {
+		log.Println(err)
+		os.Exit(1)
+	}
 
 	cls, err := wkClient.Clusters().GetCluster(clusterNameorID, targetEnv)
 	if err != nil {
@@ -298,14 +302,17 @@ func resourceIBMContainerVpcWorkerCreate(d *schema.ResourceData, meta interface{
 	// 	}
 	// }
 
-	t.postWorkerReplace(worker, cluster_config.(string))
+	err = t.postWorkerReplace(worker, cluster_config.(string))
+	if err != nil {
+		log.Println(err)
+		os.Exit(1)
+	}
 
 	return resourceIBMContainerVpcWorkerRead(d, meta)
 }
 
 func resourceIBMContainerVpcWorkerRead(d *schema.ResourceData, meta interface{}) error {
 	//Not importing this resource.
-	os.Exit(1)
 	return nil
 }
 
