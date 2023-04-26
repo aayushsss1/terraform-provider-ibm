@@ -21,6 +21,7 @@ import (
 	"github.com/IBM-Cloud/bluemix-go/bmxerror"
 	"github.com/IBM-Cloud/terraform-provider-ibm/ibm/conns"
 	"github.com/IBM-Cloud/terraform-provider-ibm/ibm/flex"
+	o "github.com/IBM-Cloud/terraform-provider-ibm/ibm/service/kubernetes/utils/softwaredefinedsolution"
 	"github.com/IBM-Cloud/terraform-provider-ibm/ibm/validate"
 
 	v1 "k8s.io/api/core/v1"
@@ -63,6 +64,13 @@ func ResourceIBMContainerVpcWorker() *schema.Resource {
 				Required:    true,
 				ForceNew:    true,
 				Description: "Cluster name",
+			},
+
+			"sds": {
+				Type:        schema.TypeString,
+				Required:    true,
+				ForceNew:    true,
+				Description: "Name of SDS",
 			},
 
 			"replace_worker": {
@@ -143,6 +151,11 @@ func resourceIBMContainerVpcWorkerCreate(d *schema.ResourceData, meta interface{
 	cluster_config, cc_ok := d.GetOk("kube_config_path")
 	check_ptx_status := d.Get("check_ptx_status").(bool)
 	clusterNameorID := d.Get("cluster_name").(string)
+	sds := d.Get("sds").(string)
+	var t o.Sds
+	if sds == "ODF" {
+		t = o.Odf{}
+	}
 
 	if check_ptx_status {
 		//Validate & Check kubeconfig
@@ -161,10 +174,11 @@ func resourceIBMContainerVpcWorkerCreate(d *schema.ResourceData, meta interface{
 				return fmt.Errorf("[ERROR] Invalid kubeconfig,, failed to create clientset: %s", err)
 			}
 			//3. List pods from kube-system namespace
-			_, err = clientset.CoreV1().Pods("default").List(context.TODO(), metav1.ListOptions{})
+			pods, err := clientset.CoreV1().Pods("").List(context.TODO(), metav1.ListOptions{})
 			if err != nil {
 				return fmt.Errorf("[ERROR] Invalid kubeconfig, failed to list resource: %s", err)
 			}
+			log.Println("These are the pods", pods)
 		}
 		log.Printf("Kubeconfig is valid")
 	}
@@ -198,6 +212,16 @@ func resourceIBMContainerVpcWorkerCreate(d *schema.ResourceData, meta interface{
 	worker, err := wkClient.Workers().Get(clusterNameorID, workerID, targetEnv)
 	if err != nil {
 		return fmt.Errorf("[ERROR] Error getting container vpc worker node: %s", err)
+	}
+
+	if sds == "ODF" {
+
+		err = t.PreWorkerReplace(worker, cluster_config.(string))
+		if err != nil {
+			log.Println(err)
+			os.Exit(1)
+		}
+
 	}
 
 	cls, err := wkClient.Clusters().GetCluster(clusterNameorID, targetEnv)
@@ -266,6 +290,21 @@ func resourceIBMContainerVpcWorkerCreate(d *schema.ResourceData, meta interface{
 		}
 	}
 
+	//Worker reloaded successfully
+	currentStatus = true
+
+	if sds == "ODF" {
+
+		err = t.PostWorkerReplace(worker, cluster_config.(string))
+		if err != nil {
+			log.Println(err)
+			os.Exit(1)
+		}
+
+		return resourceIBMContainerVpcWorkerRead(d, meta)
+
+	}
+
 	if check_ptx_status {
 		err = checkPortworxStatus(d, cluster_config.(string))
 		if err != nil {
@@ -273,8 +312,6 @@ func resourceIBMContainerVpcWorkerCreate(d *schema.ResourceData, meta interface{
 		}
 	}
 
-	//Worker reloaded successfully
-	currentStatus = true
 	return resourceIBMContainerVpcWorkerRead(d, meta)
 }
 
