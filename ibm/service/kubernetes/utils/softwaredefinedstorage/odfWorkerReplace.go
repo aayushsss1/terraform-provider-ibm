@@ -22,11 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	"k8s.io/apimachinery/pkg/watch"
-	"k8s.io/client-go/kubernetes"
-	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/oidc"
-	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -35,40 +31,28 @@ type Odf struct{}
 
 var deploymentList []string
 
+// ODF Struct Defined
+type odf struct{}
+
+func NewSdsOdf() Sds {
+	return &odf{}
+}
+
 // Steps before Worker Replace for ODF
-func (o Odf) PreWorkerReplace(worker v2.Worker, clusterConfig string, sdsTimeout time.Duration) error {
+func (o odf) PreWorkerReplace(worker v2.Worker) error {
 	log.Println("Inside preWorkerReplace for ODF")
-	//1. Load the cluster config
-	config, err := clientcmd.BuildConfigFromFlags("", clusterConfig)
-	if err != nil {
-		return fmt.Errorf("[ERROR] Invalid kubeconfig, failed to set context: %s", err)
-	}
-	//2. Create the clientset
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return fmt.Errorf("[ERROR] Invalid kubeconfig,, failed to create clientset: %s", err)
-	}
 	workerName := worker.NetworkInterfaces[0].IpAddress
 	log.Println("This is the Worker to be replaced", workerName)
 	// Scale Deployments to 0
-	// Mon Deployment
-	err = scalePods(clientset, workerName, APP, monLabel, modId, 0)
-	if err != nil {
-		return err
-	}
-	// OSD Deployment
-	err = scalePods(clientset, workerName, APP, osdLabel, osdId, 0)
-	if err != nil {
-		return err
-	}
-	// Crash Collector
-	err = scalePods(clientset, workerName, APP, crashcollectorLabel, crashcollectorId, 0)
-	if err != nil {
-		return err
+	for label, id := range AppLabelId {
+		err := scalePods(workerName, app, label, id, 0)
+		if err != nil {
+			return err
+		}
 	}
 	// Check if Replica Set is 0
 	for _, v := range deploymentList {
-		_, err = WaitForOdfDeploymentStatus(sdsTimeout, clientset, 0, v)
+		_, err := waitForOdfDeploymentStatus(0, v)
 		if err != nil {
 			return err
 		}
@@ -78,19 +62,19 @@ func (o Odf) PreWorkerReplace(worker v2.Worker, clusterConfig string, sdsTimeout
 	node := workerName
 
 	// Cordon the node
-	_, err = WaitForNodeCordonStatus(sdsTimeout, clientset, node)
+	_, err := waitForNodeCordonStatus(node)
 	if err != nil {
 		return err
 	}
 
 	//Drain the node
-	pods, err := clientset.CoreV1().Pods("").List(context.TODO(), metav1.ListOptions{FieldSelector: "spec.nodeName=" + workerName})
+	pods, err := clientSet.CoreV1().Pods("").List(context.TODO(), metav1.ListOptions{FieldSelector: "spec.nodeName=" + workerName})
 	if err != nil {
 		return fmt.Errorf("[ERROR] Error getting Pods from worker node %s - %s", workerName, err)
 	}
 	// Evict the pods from the given node
 	for _, pod := range pods.Items {
-		EvictPod(clientset, pod.Name, pod.Namespace)
+		evictPod(pod.Name, pod.Namespace)
 		log.Printf("Pod %s has been evicted\n", pod.Name)
 	}
 	log.Printf("Node %s has been drained\n", node)
@@ -98,9 +82,9 @@ func (o Odf) PreWorkerReplace(worker v2.Worker, clusterConfig string, sdsTimeout
 
 }
 
-func EvictPod(client *kubernetes.Clientset, name, namespace string) error {
+func evictPod(name, namespace string) error {
 
-	return client.PolicyV1beta1().Evictions(namespace).Evict(context.TODO(), &policy.Eviction{
+	return clientSet.PolicyV1beta1().Evictions(namespace).Evict(context.TODO(), &policy.Eviction{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace},
@@ -108,12 +92,12 @@ func EvictPod(client *kubernetes.Clientset, name, namespace string) error {
 }
 
 // Function to Scale the deployments based on the pods present in the current worker node
-func scalePods(clientset *kubernetes.Clientset, workerName string, appLabel string, appLabelValue string, idLabel string, replicas int32) error {
+func scalePods(workerName string, appLabel string, appLabelValue string, idLabel string, replicas int32) error {
 	labelSelector := metav1.LabelSelector{MatchLabels: map[string]string{appLabel: appLabelValue}}
 	listOptions := metav1.ListOptions{
 		LabelSelector: labels.Set(labelSelector.MatchLabels).String(),
 		FieldSelector: "spec.nodeName=" + workerName}
-	pods, err := clientset.CoreV1().Pods("openshift-storage").List(context.TODO(), listOptions)
+	pods, err := clientSet.CoreV1().Pods(odfNamespace).List(context.TODO(), listOptions)
 	if err != nil {
 		return fmt.Errorf("[ERROR] Error getting Pods in the openshift-storage namespace: %s", err)
 	}
@@ -123,7 +107,7 @@ func scalePods(clientset *kubernetes.Clientset, workerName string, appLabel stri
 	for _, pod := range pods.Items {
 		log.Printf("Pod name: %v\n", pod.Name)
 		deploymentName := pod.Labels[appLabel] + "-" + pod.Labels[idLabel]
-		deploymentsClient := clientset.AppsV1().Deployments("openshift-storage")
+		deploymentsClient := clientSet.AppsV1().Deployments(odfNamespace)
 		deploymentList = append(deploymentList, deploymentName)
 		result, err := deploymentsClient.Get(context.TODO(), deploymentName, metav1.GetOptions{})
 		if err != nil {
@@ -142,21 +126,9 @@ func scalePods(clientset *kubernetes.Clientset, workerName string, appLabel stri
 }
 
 // Steps after worker replace has been complete
-func (o Odf) PostWorkerReplace(worker v2.Worker, clusterConfig string, sdsTimeout time.Duration) error {
+func (o odf) PostWorkerReplace(worker v2.Worker) error {
 	log.Println("In Post Worker Replace")
-	//1. Load the cluster config
-	config, err := clientcmd.BuildConfigFromFlags("", clusterConfig)
-	if err != nil {
-		return fmt.Errorf("[ERROR] Invalid kubeconfig, failed to set context: %s", err)
-	}
-
-	//2. create the clientset
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return fmt.Errorf("[ERROR] Invalid kubeconfig,, failed to create clientset: %s", err)
-	}
-
-	deploymentsClient := clientset.AppsV1().Deployments("openshift-storage")
+	deploymentsClient := clientSet.AppsV1().Deployments(odfNamespace)
 	log.Println("Scaling Up Deployments")
 	// Scale Up Deployments that have been Brought down in pre worker replace
 	for _, v := range deploymentList {
@@ -178,7 +150,7 @@ func (o Odf) PostWorkerReplace(worker v2.Worker, clusterConfig string, sdsTimeou
 	// Check if the deployment replicas are 1
 	for _, v := range deploymentList {
 		if !strings.Contains(v, crashcollectorLabel) {
-			_, err = WaitForOdfDeploymentStatus(sdsTimeout, clientset, 1, v)
+			_, err := waitForOdfDeploymentStatus(1, v)
 			if err != nil {
 				return err
 			}
@@ -191,12 +163,12 @@ func (o Odf) PostWorkerReplace(worker v2.Worker, clusterConfig string, sdsTimeou
 	log.Println("This is the New Worker Name", workerName)
 
 	// Check the status of the OSD pods, if failed then run job
-	labelSelector := metav1.LabelSelector{MatchLabels: map[string]string{APP: osdLabel}}
+	labelSelector := metav1.LabelSelector{MatchLabels: map[string]string{app: osdLabel}}
 	listOptions := metav1.ListOptions{
 		LabelSelector: labels.Set(labelSelector.MatchLabels).String(),
 		FieldSelector: "spec.nodeName=" + workerName}
 
-	pods, err := clientset.CoreV1().Pods("openshift-storage").List(context.TODO(), listOptions)
+	pods, err := clientSet.CoreV1().Pods(odfNamespace).List(context.TODO(), listOptions)
 	if err != nil {
 		return fmt.Errorf("[ERROR] Error getting Pods in the openshift-storage namespace %v", err)
 	}
@@ -210,65 +182,42 @@ func (o Odf) PostWorkerReplace(worker v2.Worker, clusterConfig string, sdsTimeou
 	}
 	osdID = strings.TrimRight(osdID, ",")
 	if len(osdID) > 0 {
-		ExecuteTemplate(osdID)
+		err := executeTemplate(osdID)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Check Ceph Status if HEALTH OK then return success!
 	log.Println("Fetching Ceph Cluster Status")
-	_, err = WaitForCephClusterStatus(sdsTimeout, clusterConfig)
+	_, err = waitForCephClusterStatus()
 	if err != nil {
 		return err
 	}
 	return nil
-
 }
 
 func int32Ptr(i int32) *int32 { return &i }
 
 // To execute a given template using the openshift go client
-func ExecuteTemplate(osdID string) {
-	kubeconfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
-		clientcmd.NewDefaultClientConfigLoadingRules(),
-		&clientcmd.ConfigOverrides{},
-	)
-
-	// Determine the Namespace referenced by the current context in the
-	// kubeconfig file.
-	namespace, _, err := kubeconfig.Namespace()
-	if err != nil {
-		panic(err)
-	}
-
-	// Get a rest.Config from the kubeconfig file.  This will be passed into all
-	// the client objects we create.
-	restconfig, err := kubeconfig.ClientConfig()
-	if err != nil {
-		panic(err)
-	}
-
-	// Create a Kubernetes core/v1 client.
-	coreclient, err := corev1client.NewForConfig(restconfig)
-	if err != nil {
-		panic(err)
-	}
-
+func executeTemplate(osdID string) error {
 	// Create an OpenShift template/v1 client.
-	templateclient, err := templatev1client.NewForConfig(restconfig)
+	templateclient, err := templatev1client.NewForConfig(restConfig)
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("[ERROR] Error creating templateClient %s", err)
 	}
 
 	// Get the "ocs-osd-removal" Template from the "openshift-storage" Namespace.
-	template, err := templateclient.Templates("openshift-storage").Get(context.Background(),
+	template, err := templateclient.Templates(odfNamespace).Get(context.Background(),
 		"ocs-osd-removal", metav1.GetOptions{})
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("[ERROR] Error getting ocs-osd-removal template %s", err)
 	}
-	// INSTANTIATE THE TEMPLATE.
 
+	// INSTANTIATE THE TEMPLATE.
 	// To set Template parameters, create a Secret holding overridden parameters
 	// and their values.
-	secret, err := coreclient.Secrets(namespace).Create(context.Background(), &corev1.Secret{
+	secret, err := clientSet.CoreV1().Secrets(odfNamespace).Create(context.Background(), &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "parameters",
 		},
@@ -277,12 +226,12 @@ func ExecuteTemplate(osdID string) {
 		},
 	}, metav1.CreateOptions{})
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("[ERROR] Error creating secret for ocs-osd-removal template %s", err)
 	}
 
 	// Create a TemplateInstance object, linking the Template and a reference to
 	// the Secret object created above.
-	ti, err := templateclient.TemplateInstances(namespace).Create(context.Background(),
+	templateInstance, err := templateclient.TemplateInstances(odfNamespace).Create(context.Background(),
 		&templatev1.TemplateInstance{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "templateinstance",
@@ -296,92 +245,41 @@ func ExecuteTemplate(osdID string) {
 		}, metav1.CreateOptions{})
 
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("[ERROR] Error deploying ocs-osd-removal template %s", err)
 	}
 
-	// Watch the TemplateInstance object until it indicates the Ready or
-	// InstantiateFailure status condition.
-	watcher, err := templateclient.TemplateInstances(namespace).Watch(context.Background(),
-		metav1.SingleObject(ti.ObjectMeta),
-	)
+	_, err = waitForTemplateInstanceStatus(templateInstance)
 	if err != nil {
-		panic(err)
-	}
-
-	for event := range watcher.ResultChan() {
-		switch event.Type {
-		case watch.Modified:
-			ti = event.Object.(*templatev1.TemplateInstance)
-
-			for _, cond := range ti.Status.Conditions {
-				// If the TemplateInstance contains a status condition
-				// Ready == True, stop watching.
-				if cond.Type == templatev1.TemplateInstanceReady &&
-					cond.Status == corev1.ConditionTrue {
-					watcher.Stop()
-				}
-
-				// If the TemplateInstance contains a status condition
-				// InstantiateFailure == True, indicate failure.
-				if cond.Type ==
-					templatev1.TemplateInstanceInstantiateFailure &&
-					cond.Status == corev1.ConditionTrue {
-					panic("templateinstance instantiation failed")
-				}
-			}
-
-		default:
-			panic("unexpected event type " + event.Type)
-		}
+		return err
 	}
 
 	// DELETE THE INSTANTIATED TEMPLATE.
-
 	// We use the foreground propagation policy to ensure that the garbage
 	// collector removes all instantiated objects before the TemplateInstance
 	// itself disappears.
 	foreground := metav1.DeletePropagationForeground
 	deleteOptions := metav1.DeleteOptions{PropagationPolicy: &foreground}
-	err = templateclient.TemplateInstances(namespace).Delete(context.Background(), ti.Name,
+	err = templateclient.TemplateInstances(odfNamespace).Delete(context.TODO(), templateInstance.Name,
 		deleteOptions)
 	if err != nil {
-		panic(err)
-	}
-
-	// Watch the TemplateInstance object until it disappears.
-	watcher, err = templateclient.TemplateInstances(namespace).Watch(context.Background(),
-		metav1.SingleObject(ti.ObjectMeta),
-	)
-	if err != nil {
-		panic(err)
-	}
-
-	for event := range watcher.ResultChan() {
-		switch event.Type {
-		case watch.Modified:
-			// do nothing
-
-		case watch.Deleted:
-			watcher.Stop()
-
-		default:
-			panic("unexpected event type " + event.Type)
-		}
+		fmt.Errorf("[ERROR] Error deleting TemplateInstance resource")
 	}
 
 	// Finally delete the "parameters" Secret.
-	err = coreclient.Secrets(namespace).Delete(context.Background(), secret.Name,
+	err = clientSet.CoreV1().Secrets(odfNamespace).Delete(context.TODO(), secret.Name,
 		metav1.DeleteOptions{})
 	if err != nil {
-		panic(err)
+		fmt.Errorf("[ERROR] Error deleting parameter Secret resource")
 	}
+
+	return nil
 }
 
-func WaitForOdfDeploymentStatus(sdsTimeout time.Duration, clientset *kubernetes.Clientset, replicas int32, deploymentName string) (interface{}, error) {
+func waitForOdfDeploymentStatus(replicas int32, deploymentName string) (interface{}, error) {
 	stateConf := &resource.StateChangeConf{
 		Pending:        []string{"NotReady"},
 		Target:         []string{"Ready"},
-		Refresh:        odfDeploymentRefreshFunc(clientset, replicas, deploymentName),
+		Refresh:        odfDeploymentRefreshFunc(replicas, deploymentName),
 		Timeout:        time.Duration(sdsTimeout),
 		Delay:          5 * time.Second,
 		MinTimeout:     5 * time.Second,
@@ -390,10 +288,10 @@ func WaitForOdfDeploymentStatus(sdsTimeout time.Duration, clientset *kubernetes.
 	return stateConf.WaitForState()
 }
 
-func odfDeploymentRefreshFunc(clientset *kubernetes.Clientset, replicas int32, deploymentName string) resource.StateRefreshFunc {
+func odfDeploymentRefreshFunc(replicas int32, deploymentName string) resource.StateRefreshFunc {
 	return func() (interface{}, string, error) {
 		log.Println("Checking Deployment Status....")
-		deploymentsClient := clientset.AppsV1().Deployments("openshift-storage")
+		deploymentsClient := clientSet.AppsV1().Deployments(odfNamespace)
 		result, err := deploymentsClient.Get(context.TODO(), deploymentName, metav1.GetOptions{})
 		if err != nil {
 			return nil, "NotReady", fmt.Errorf("[ERROR] Failed to get latest version of deployment: %v - %v", deploymentName, err)
@@ -407,11 +305,11 @@ func odfDeploymentRefreshFunc(clientset *kubernetes.Clientset, replicas int32, d
 	}
 }
 
-func WaitForCephClusterStatus(sdsTimeout time.Duration, clusterConfig string) (interface{}, error) {
+func waitForCephClusterStatus() (interface{}, error) {
 	stateConf := &resource.StateChangeConf{
 		Pending:        []string{"NotReady"},
 		Target:         []string{"Ready"},
-		Refresh:        cephClusterRefreshFunc(clusterConfig),
+		Refresh:        cephClusterRefreshFunc(),
 		Timeout:        time.Duration(sdsTimeout),
 		Delay:          5 * time.Second,
 		MinTimeout:     5 * time.Second,
@@ -420,19 +318,18 @@ func WaitForCephClusterStatus(sdsTimeout time.Duration, clusterConfig string) (i
 	return stateConf.WaitForState()
 }
 
-func cephClusterRefreshFunc(clusterConfig string) resource.StateRefreshFunc {
+func cephClusterRefreshFunc() resource.StateRefreshFunc {
 	return func() (interface{}, string, error) {
-		config, _ := clientcmd.BuildConfigFromFlags("", clusterConfig)
 		scheme := runtime.NewScheme()
 		utilruntime.Must(cephv1.AddToScheme(scheme))
-		cntrlClient, err := client.New(config, client.Options{Scheme: scheme})
+		cntrlClient, err := client.New(restConfig, client.Options{Scheme: scheme})
 		if err != nil {
 			return nil, "NotReady", fmt.Errorf("[ERROR] Error getting config")
 		}
 		cephcluster := &cephv1.CephCluster{}
 		var CephclusterGet []string
 		CephclusterGet = append(CephclusterGet, "\n Cephcluster Details \n \n", "NAME  DATADIRHOSTPATH   MONCOUNT   AGE   PHASE   MESSAGE  HEALTH\n")
-		err = cntrlClient.Get(context.Background(), types.NamespacedName{Name: "ocs-storagecluster-cephcluster", Namespace: "openshift-storage"}, cephcluster)
+		err = cntrlClient.Get(context.Background(), types.NamespacedName{Name: "ocs-storagecluster-cephcluster", Namespace: odfNamespace}, cephcluster)
 		if err != nil && !apierror.IsNotFound(err) {
 			return nil, "NotReady", err
 		} else {
@@ -460,11 +357,11 @@ func cephClusterRefreshFunc(clusterConfig string) resource.StateRefreshFunc {
 	}
 }
 
-func WaitForNodeCordonStatus(sdsTimeout time.Duration, clientset *kubernetes.Clientset, node string) (interface{}, error) {
+func waitForNodeCordonStatus(node string) (interface{}, error) {
 	stateConf := &resource.StateChangeConf{
 		Pending:        []string{"NotReady"},
 		Target:         []string{"Ready"},
-		Refresh:        nodeCordonRefreshFunc(clientset, node),
+		Refresh:        nodeCordonRefreshFunc(node),
 		Timeout:        time.Duration(sdsTimeout),
 		Delay:          10 * time.Second,
 		MinTimeout:     10 * time.Second,
@@ -473,24 +370,59 @@ func WaitForNodeCordonStatus(sdsTimeout time.Duration, clientset *kubernetes.Cli
 	return stateConf.WaitForState()
 }
 
-func nodeCordonRefreshFunc(clientset *kubernetes.Clientset, node string) resource.StateRefreshFunc {
+func nodeCordonRefreshFunc(node string) resource.StateRefreshFunc {
 	return func() (interface{}, string, error) {
-		n, err := clientset.CoreV1().Nodes().Get(context.Background(), node, metav1.GetOptions{})
+		n, err := clientSet.CoreV1().Nodes().Get(context.Background(), node, metav1.GetOptions{})
 		if err != nil {
 			return nil, "NotReady", fmt.Errorf("[ERROR] Node %s not found\n", node)
 		}
 		n.Spec.Unschedulable = true
-		_, err = clientset.CoreV1().Nodes().Update(context.Background(), n, metav1.UpdateOptions{})
+		_, err = clientSet.CoreV1().Nodes().Update(context.Background(), n, metav1.UpdateOptions{})
 		if err != nil {
 			return nil, "NotReady", fmt.Errorf("[ERROR] Unable to update the node %s\n", node)
 		}
-		n, err = clientset.CoreV1().Nodes().Get(context.Background(), node, metav1.GetOptions{})
+		n, err = clientSet.CoreV1().Nodes().Get(context.Background(), node, metav1.GetOptions{})
 		if err != nil {
 			return nil, "NotReady", fmt.Errorf("[ERROR] Unable to cordon node %s\n", node)
 		}
 		if n.Spec.Unschedulable {
 			log.Println("Node has been successfully Cordoned")
 			return true, "Ready", nil
+		}
+		return nil, "NotReady", nil
+	}
+}
+
+func waitForTemplateInstanceStatus(templateInstance *templatev1.TemplateInstance) (interface{}, error) {
+	stateConf := &resource.StateChangeConf{
+		Pending:        []string{"NotReady"},
+		Target:         []string{"Ready"},
+		Refresh:        templateInstanceRefreshFunc(templateInstance),
+		Timeout:        time.Duration(sdsTimeout),
+		Delay:          10 * time.Second,
+		MinTimeout:     10 * time.Second,
+		NotFoundChecks: 100,
+	}
+	return stateConf.WaitForState()
+}
+
+func templateInstanceRefreshFunc(templateInstance *templatev1.TemplateInstance) resource.StateRefreshFunc {
+	return func() (interface{}, string, error) {
+		for _, cond := range templateInstance.Status.Conditions {
+			// If the TemplateInstance contains a status condition
+			// Ready == True, stop watching.
+			if cond.Type == templatev1.TemplateInstanceReady &&
+				cond.Status == corev1.ConditionTrue {
+				return true, "Ready", nil
+			}
+
+			// If the TemplateInstance contains a status condition
+			// InstantiateFailure == True, indicate failure.
+			if cond.Type ==
+				templatev1.TemplateInstanceInstantiateFailure &&
+				cond.Status == corev1.ConditionTrue {
+				return nil, "NotReady", fmt.Errorf("[ERROR] Error TemplateInstance instantiation failed")
+			}
 		}
 		return nil, "NotReady", nil
 	}

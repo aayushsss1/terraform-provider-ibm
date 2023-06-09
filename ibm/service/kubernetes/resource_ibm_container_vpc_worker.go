@@ -172,17 +172,18 @@ func resourceIBMContainerVpcWorkerCreate(d *schema.ResourceData, meta interface{
 	sds := d.Get("sds").(string)
 	sds_timeout, err := time.ParseDuration(d.Get("sds_timeout").(string))
 	var t softwaredefinedstorage.Sds
+
+	// Check for Sds solution
 	if sds == "ODF" {
-		t = softwaredefinedstorage.Odf{}
+		t = softwaredefinedstorage.NewSdsOdf()
 	} else {
-		t = softwaredefinedstorage.NoopSds{}
+		t = softwaredefinedstorage.NewSdsNoop()
 	}
 
 	if check_ptx_status || len(sds) != 0 {
 		//Validate & Check kubeconfig
-
 		if !cc_ok {
-			return fmt.Errorf("[ERROR] kube_config_path argument must be specified if check_ptx_status is true")
+			return fmt.Errorf("[ERROR] kube_config_path argument must be specified if check_ptx_status is true or sds is set")
 		} else {
 			//1. Load the cluster config
 			config, err := clientcmd.BuildConfigFromFlags("", cluster_config.(string))
@@ -199,6 +200,11 @@ func resourceIBMContainerVpcWorkerCreate(d *schema.ResourceData, meta interface{
 			if err != nil {
 				return fmt.Errorf("[ERROR] Invalid kubeconfig, failed to list resource: %s", err)
 			}
+			//4. Set globals
+			softwaredefinedstorage.SetGlobals(&softwaredefinedstorage.ClusterConfig{
+				RestConfig: config,
+				ClientSet:  clientset,
+			}, sds_timeout)
 		}
 		log.Printf("Kubeconfig is valid")
 	}
@@ -234,7 +240,7 @@ func resourceIBMContainerVpcWorkerCreate(d *schema.ResourceData, meta interface{
 		return fmt.Errorf("[ERROR] Error getting container vpc worker node: %s", err)
 	}
 
-	err = t.PreWorkerReplace(worker, cluster_config.(string), sds_timeout)
+	err = t.PreWorkerReplace(worker)
 	if err != nil {
 		return err
 	}
@@ -305,7 +311,7 @@ func resourceIBMContainerVpcWorkerCreate(d *schema.ResourceData, meta interface{
 		}
 	}
 
-	err = t.PostWorkerReplace(worker, cluster_config.(string), sds_timeout)
+	err = t.PostWorkerReplace(worker)
 	if err != nil {
 		return err
 	}
