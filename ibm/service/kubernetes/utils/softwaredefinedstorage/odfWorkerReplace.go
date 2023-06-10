@@ -262,14 +262,14 @@ func executeTemplate(osdID string) error {
 	err = templateclient.TemplateInstances(odfNamespace).Delete(context.TODO(), templateInstance.Name,
 		deleteOptions)
 	if err != nil {
-		fmt.Errorf("[ERROR] Error deleting TemplateInstance resource")
+		return fmt.Errorf("[ERROR] Error deleting TemplateInstance resource %s", err)
 	}
 
 	// Finally delete the "parameters" Secret.
 	err = clientSet.CoreV1().Secrets(odfNamespace).Delete(context.TODO(), secret.Name,
 		metav1.DeleteOptions{})
 	if err != nil {
-		fmt.Errorf("[ERROR] Error deleting parameter Secret resource")
+		return fmt.Errorf("[ERROR] Error deleting parameter Secret resource %s", err)
 	}
 
 	return nil
