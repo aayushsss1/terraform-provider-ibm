@@ -1,10 +1,10 @@
 package satellite
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
-	"os"
 	"time"
 
 	"github.com/IBM-Cloud/container-services-go-sdk/kubernetesserviceapiv1"
@@ -35,7 +35,7 @@ func ResourceIBMSatelliteStorage() *schema.Resource {
 				ForceNew:    true,
 				Description: "Location ID.",
 			},
-			"UUID": {
+			"uuid": {
 				Type:        schema.TypeString,
 				Computed:    true,
 				ForceNew:    true,
@@ -44,6 +44,7 @@ func ResourceIBMSatelliteStorage() *schema.Resource {
 			"storage_configuration": {
 				Type:     schema.TypeSet,
 				Required: true,
+				Set:      resourceIBMContainerAddonsHash,
 				Elem: &schema.Resource{
 					Schema: map[string]*schema.Schema{
 						"config_name": {
@@ -111,25 +112,34 @@ func ResourceIBMSatelliteStorage() *schema.Resource {
 }
 
 func validateStorageConfig(createStorageConfigurationOptions *kubernetesserviceapiv1.CreateStorageConfigurationOptions, meta interface{}) error {
-
+	log.Println("In Validate Storage Config")
+	log.Println("This is the storage config struct", createStorageConfigurationOptions)
 	satClient, err := meta.(conns.ClientSession).SatelliteClientSession()
 	if err != nil {
 		return err
 	}
-	storageTemplateName := createStorageConfigurationOptions.ConfigName
-	storageTemplateVersion := createStorageConfigurationOptions.ConfigVersion
-	storageresult := &kubernetesserviceapiv1.GetStorageTemplateOptions{
-		Name:    storageTemplateName,
-		Version: storageTemplateVersion,
-	}
+	log.Println("This is the storage config struct", createStorageConfigurationOptions)
+	storageTemplateName := createStorageConfigurationOptions.StorageTemplateName
+	storageTemplateVersion := createStorageConfigurationOptions.StorageTemplateVersion
+	log.Println("Storage Template Name", storageTemplateName)
+	log.Println("Storage Template Version", storageTemplateVersion)
+	storageresult := &kubernetesserviceapiv1.GetStorageTemplateOptions{}
+	storageresult.SetName(*storageTemplateName)
+	storageresult.SetVersion(*storageTemplateVersion)
 	userconfigParams := createStorageConfigurationOptions.UserConfigParameters
 	usersecretParams := createStorageConfigurationOptions.UserSecretParameters
-	result, _, _ := satClient.GetStorageTemplate(storageresult)
+	result, _, err := satClient.GetStorageTemplate(storageresult)
+	if err != nil {
+		return err
+	}
 	var customparamList []string
+	log.Println("Before the For Loop", result.CustomParameters[0])
 	for _, v := range result.CustomParameters {
+		log.Println("Inside For Loop")
 		var inInterface map[string]interface{}
 		inrec, _ := json.Marshal(v)
 		json.Unmarshal(inrec, &inInterface)
+		log.Println("This is the value", inInterface)
 		if inInterface["required"].(string) == "true" {
 			_, foundConfig := userconfigParams[inInterface["name"].(string)]
 			_, foundSecret := usersecretParams[inInterface["name"].(string)]
@@ -155,7 +165,6 @@ func validateStorageConfig(createStorageConfigurationOptions *kubernetesservicea
 	}
 
 	log.Println("Validated Storage Configuration", createStorageConfigurationOptions)
-	os.Exit(1)
 	return nil
 }
 
@@ -168,31 +177,38 @@ func resourceIBMContainerStorageConfigurationCreate(d *schema.ResourceData, meta
 
 	log.Println("In Create Function")
 	createStorageConfigurationOptions := &kubernetesserviceapiv1.CreateStorageConfigurationOptions{}
-	satLocation := d.Get("location").(string)
-	createStorageConfigurationOptions.Location = &satLocation
+
+	log.Println("Before the For Loop")
 
 	storageConfigSet := d.Get("storage_configuration").(*schema.Set).List()
+	log.Println("The storage config set before For Loop", storageConfigSet)
 
 	for _, scSet := range storageConfigSet {
 		sc, _ := scSet.(map[string]interface{})
+		log.Println("The storage config set", sc)
+
+		satLocation := d.Get("location").(string)
+		createStorageConfigurationOptions.Controller = &satLocation
 
 		configName := sc["config_name"].(string)
-		createStorageConfigurationOptions.ConfigName = &configName
+		createStorageConfigurationOptions.SetConfigName(configName)
 
 		storageTemplateName := sc["storage_template_name"].(string)
+		log.Println(storageTemplateName)
 		createStorageConfigurationOptions.StorageTemplateName = &storageTemplateName
 
 		storageTemplateVersion := sc["storage_template_version"].(string)
+		log.Println(storageTemplateVersion)
 		createStorageConfigurationOptions.StorageTemplateVersion = &storageTemplateVersion
 
 		var userconfigParams map[string]string
 		json.Unmarshal([]byte(sc["user_config_parameters"].(string)), &userconfigParams)
-		createStorageConfigurationOptions.UserConfigParameters = userconfigParams
+		createStorageConfigurationOptions.SetUserConfigParameters(userconfigParams)
 
 		if sc["user_secret_parameters"] != "" {
 			var usersecretParams map[string]string
 			json.Unmarshal([]byte(sc["user_secret_parameters"].(string)), &usersecretParams)
-			createStorageConfigurationOptions.UserSecretParameters = usersecretParams
+			createStorageConfigurationOptions.SetUserSecretParameters(usersecretParams)
 		}
 
 		storageClassParamsList := sc["storage_class_parameters"].([]interface{})
@@ -204,8 +220,10 @@ func resourceIBMContainerStorageConfigurationCreate(d *schema.ResourceData, meta
 				log.Println(storageclassParams)
 				mapString = append(mapString, storageclassParams)
 			}
-			createStorageConfigurationOptions.StorageClassParameters = mapString
+			createStorageConfigurationOptions.SetStorageClassParameters(mapString)
 		}
+
+		log.Println("This is the storage config struct", createStorageConfigurationOptions)
 
 		err = validateStorageConfig(createStorageConfigurationOptions, meta)
 		if err != nil {
@@ -281,4 +299,13 @@ func storageConfigurationStatusRefreshFunc(getStorageConfigurationOptions *kuber
 
 		return nil, "NotReady", nil
 	}
+}
+
+func resourceIBMContainerAddonsHash(v interface{}) int {
+	var buf bytes.Buffer
+	a := v.(map[string]interface{})
+	buf.WriteString(fmt.Sprintf("%s-", a["storage_template_name"].(string)))
+	buf.WriteString(fmt.Sprintf("%s-", a["storage_template_version"].(string)))
+
+	return conns.String(buf.String())
 }
