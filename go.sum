@@ -206,8 +206,8 @@ github.com/Shopify/sarama v1.29.1/go.mod h1:mdtqvCSg8JOxk8PmpTNGyo6wzd4BMm4QXSfD
 github.com/Shopify/toxiproxy v2.1.4+incompatible h1:TKdv8HiTLgE5wdJuEML90aBgNWsokNbMijUGhmcoBJc=
 github.com/Shopify/toxiproxy v2.1.4+incompatible/go.mod h1:OXgGpZ6Cli1/URJOF1DMxUHB2q5Ap20/P/eIdh4G0pI=
 github.com/StackExchange/wmi v0.0.0-20180116203802-5d049714c4a6/go.mod h1:3eOhrUMpNV+6aFIbp5/iudMxNCF27Vw2OZgy4xEx0Fg=
-github.com/aayushsss1/container-services-go-sdk v0.0.0-20230713071456-7b3666b24e3b h1:XfmW15tQLYjA0Toi1u5Ck5onlNI8m2uHdcvCIDnQ2PM=
-github.com/aayushsss1/container-services-go-sdk v0.0.0-20230713071456-7b3666b24e3b/go.mod h1:xUQL9SGAjoZFd4GNjrjjtEpjpkgU7RFXRyHesbKTjiY=
+github.com/aayushsss1/container-services-go-sdk v0.0.0-20230726041442-f96c01ec58b7 h1:n6SS4CMI5Is5IMhjvwr0JS4Ikzo+juoHyAhUrRkOIvE=
+github.com/aayushsss1/container-services-go-sdk v0.0.0-20230726041442-f96c01ec58b7/go.mod h1:xUQL9SGAjoZFd4GNjrjjtEpjpkgU7RFXRyHesbKTjiY=
 github.com/abdullin/seq v0.0.0-20160510034733-d5467c17e7af/go.mod h1:5Jv4cbFiHJMsVxt52+i0Ha45fjshj6wxYr1r19tB9bw=
 github.com/acomagu/bufpipe v1.0.3 h1:fxAGrHZTgQ9w5QqVItgzwj235/uYZYgbXitB+dLupOk=
 github.com/acomagu/bufpipe v1.0.3/go.mod h1:mxdxdup/WdsKVreO5GpW4+M/1CE2sMG4jeGJ2sYmHc4=
