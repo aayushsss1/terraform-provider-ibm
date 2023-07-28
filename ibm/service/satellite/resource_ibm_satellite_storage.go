@@ -49,6 +49,11 @@ func ResourceIBMSatelliteStorage() *schema.Resource {
 							Required:    true,
 							Description: "Name of the Storage Configuration.",
 						},
+						"config_version": {
+							Type:        schema.TypeString,
+							Computed:    true,
+							Description: "Version of the Storage Configuration.",
+						},
 						"storage_template_name": {
 							Type:        schema.TypeString,
 							Required:    true,
@@ -307,6 +312,7 @@ func resourceIBMContainerStorageConfigurationRead(d *schema.ResourceData, meta i
 		// Set the records with results from the server
 		record := map[string]interface{}{}
 		record["config_name"] = *result.ConfigName
+		record["config_version"] = *result.ConfigVersion
 		record["storage_template_name"] = *result.StorageTemplateName
 		record["storage_template_version"] = *result.StorageTemplateVersion
 		temp, _ := json.Marshal(result.UserConfigParameters)
