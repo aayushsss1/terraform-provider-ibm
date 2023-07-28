@@ -228,7 +228,7 @@ replace github.com/dgrijalva/jwt-go v3.2.0+incompatible => github.com/golang-jwt
 
 replace github.com/portworx/sched-ops v0.0.0-20200831185134-3e8010dc7056 => github.com/portworx/sched-ops v0.20.4-openstorage-rc3 // required by rook v1.7
 
-replace github.com/IBM-Cloud/container-services-go-sdk v0.0.0-20230118060037-101bda076037 => github.com/aayushsss1/container-services-go-sdk v0.0.0-20230726041442-f96c01ec58b7
+replace github.com/IBM-Cloud/container-services-go-sdk v0.0.0-20230118060037-101bda076037 => github.com/aayushsss1/container-services-go-sdk v0.0.0-20230727072504-754033c7ebe6
 
 exclude (
 	github.com/kubernetes-incubator/external-storage v0.20.4-openstorage-rc2
