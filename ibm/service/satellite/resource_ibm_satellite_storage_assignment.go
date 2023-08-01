@@ -7,6 +7,7 @@ import (
 	"github.com/IBM-Cloud/container-services-go-sdk/kubernetesserviceapiv1"
 	"github.com/IBM-Cloud/terraform-provider-ibm/ibm/conns"
 	"github.com/IBM-Cloud/terraform-provider-ibm/ibm/flex"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
 
@@ -38,7 +39,7 @@ func ResourceIBMSatelliteStorageAssignment() *schema.Resource {
 			"owner": {
 				Type:        schema.TypeString,
 				Computed:    true,
-				Description: "The Universally Unique IDentifier (UUID) of the Assignment.",
+				Description: "The Owner of the Assignment.",
 			},
 			"groups": {
 				Type:          schema.TypeList,
@@ -48,10 +49,11 @@ func ResourceIBMSatelliteStorageAssignment() *schema.Resource {
 				Description:   "One or more cluster groups on which you want to apply the configuration. Note that at least one cluster group is required. ",
 			},
 			"cluster": {
-				Type:         schema.TypeString,
-				Optional:     true,
-				Description:  "ID of the Satellite cluster or Service Cluster that you want to apply the configuration to.",
-				RequiredWith: []string{"controller"},
+				Type:             schema.TypeString,
+				Optional:         true,
+				Description:      "ID of the Satellite cluster or Service Cluster that you want to apply the configuration to.",
+				DiffSuppressFunc: flex.ApplyOnce,
+				RequiredWith:     []string{"controller"},
 			},
 			"svc_cluster": {
 				Type:        schema.TypeString,
@@ -61,12 +63,13 @@ func ResourceIBMSatelliteStorageAssignment() *schema.Resource {
 			"sat_cluster": {
 				Type:        schema.TypeString,
 				Computed:    true,
-				Description: "ID of the Satellite cluster that applied the configuration to.",
+				Description: "ID of the Satellite cluster that you apqplied the configuration to.",
 			},
 			"config": {
-				Type:        schema.TypeString,
-				Required:    true,
-				Description: "Storage Configuration Name or ID.",
+				Type:             schema.TypeString,
+				Required:         true,
+				DiffSuppressFunc: flex.ApplyOnce,
+				Description:      "Storage Configuration Name or ID.",
 			},
 			"config_uuid": {
 				Type:        schema.TypeString,
@@ -111,8 +114,8 @@ func ResourceIBMSatelliteStorageAssignment() *schema.Resource {
 			},
 			"update_config_version": {
 				Type:        schema.TypeBool,
-				Required:    true,
 				Default:     false,
+				Optional:    true,
 				Description: "Updating an assignment to the latest available storage configuration version.",
 			},
 			"controller": {
@@ -172,6 +175,14 @@ func resourceIBMContainerStorageAssignmentCreate(d *schema.ResourceData, meta in
 	}
 
 	d.Set("uuid", *result.AddSubscription.UUID)
+
+	getAssignmentOptions := &kubernetesserviceapiv1.GetAssignmentOptions{
+		UUID: result.AddSubscription.UUID,
+	}
+	_, err = waitForAssignmentCreationStatus(getAssignmentOptions, meta)
+	if err != nil {
+		return err
+	}
 	d.SetId(time.Now().String())
 
 	return resourceIBMContainerStorageAssignmentRead(d, meta)
@@ -196,7 +207,6 @@ func resourceIBMContainerStorageAssignmentRead(d *schema.ResourceData, meta inte
 	if err != nil {
 		return fmt.Errorf("[ERROR] Error getting Assignment of UUID %s - %v", uuid, err)
 	}
-
 	d.Set("assignment_name", *result.Name)
 	d.Set("uuid", *result.UUID)
 	d.Set("owner", *result.Owner.Name)
@@ -204,7 +214,7 @@ func resourceIBMContainerStorageAssignmentRead(d *schema.ResourceData, meta inte
 		d.Set("groups", result.Groups)
 	}
 	if result.Cluster != nil {
-		d.Set("cluster", *result.ClusterName)
+		d.Set("cluster", *result.Cluster)
 	}
 	if result.SatSvcClusterID != nil {
 		d.Set("svc_cluster", *result.SatSvcClusterID)
@@ -231,9 +241,7 @@ func resourceIBMContainerStorageAssignmentRead(d *schema.ResourceData, meta inte
 		d.Set("created", *result.Created)
 	}
 	if result.IsAssignmentUpgradeAvailable != nil {
-		d.Set("isAssignmentUpgradeAvailable", *result.IsAssignmentUpgradeAvailable)
-	} else {
-		d.Set("isAssignmentUpgradeAvailable", false)
+		d.Set("is_assignment_upgrade_available", *result.IsAssignmentUpgradeAvailable)
 	}
 	if result.RolloutStatus != nil {
 		d.Set("rollout_success_count", *result.RolloutStatus.SuccessCount)
@@ -244,15 +252,136 @@ func resourceIBMContainerStorageAssignmentRead(d *schema.ResourceData, meta inte
 }
 
 func resourceIBMContainerStorageAssignmentUpdate(d *schema.ResourceData, meta interface{}) error {
+	uuid := d.Get("uuid").(string)
+	updateAssignmentOptions := &kubernetesserviceapiv1.UpdateAssignmentOptions{}
+	updateAssignmentOptions.UUID = &uuid
 
+	if d.HasChange("assignment_name") || d.HasChange("groups") || d.HasChange("update_config_version") && !d.IsNewResource() {
+		assignmentName := d.Get("assignment_name").(string)
+		updateAssignmentOptions.Name = &assignmentName
+
+		groups := flex.ExpandStringList(d.Get("groups").([]interface{}))
+		updateAssignmentOptions.Groups = groups
+
+		updateConfigVersion := d.Get("update_config_version").(bool)
+		updateAssignmentOptions.UpdateConfigVersion = &updateConfigVersion
+
+		_, err := waitForAssignmentUpdateStatus(updateAssignmentOptions, meta)
+		if err != nil {
+			return fmt.Errorf("[ERROR] Error Updating Assignment with UUID %s - %v", uuid, err)
+		}
+	}
 	return resourceIBMContainerStorageAssignmentRead(d, meta)
 }
 
 func resourceIBMContainerStorageAssignmentDelete(d *schema.ResourceData, meta interface{}) error {
+	uuid := d.Get("uuid").(string)
+	removeAssignmentOptions := &kubernetesserviceapiv1.RemoveAssignmentOptions{}
+	removeAssignmentOptions.UUID = &uuid
 
+	_, err := waitForAssignmentDeletionStatus(removeAssignmentOptions, meta)
+	if err != nil {
+		return fmt.Errorf("[ERROR] Error Removing Assignment with UUID %s - %v", uuid, err)
+	}
+
+	d.SetId("")
 	return nil
 }
 
 func resourceIBMContainerStorageAssignmentExists(d *schema.ResourceData, meta interface{}) (bool, error) {
 	return true, nil
+}
+
+func waitForAssignmentCreationStatus(getAssignmentOptions *kubernetesserviceapiv1.GetAssignmentOptions, meta interface{}) (interface{}, error) {
+	stateConf := &resource.StateChangeConf{
+		Pending:        []string{"NotReady"},
+		Target:         []string{"Ready"},
+		Refresh:        assignmentCreationStatusRefreshFunc(getAssignmentOptions, meta),
+		Timeout:        time.Duration(time.Minute * 10),
+		Delay:          10 * time.Second,
+		MinTimeout:     10 * time.Second,
+		NotFoundChecks: 100,
+	}
+	return stateConf.WaitForState()
+}
+
+func assignmentCreationStatusRefreshFunc(getAssignmentOptions *kubernetesserviceapiv1.GetAssignmentOptions, meta interface{}) resource.StateRefreshFunc {
+	return func() (interface{}, string, error) {
+
+		satClient, err := meta.(conns.ClientSession).SatelliteClientSession()
+
+		if err != nil {
+			return nil, "NotReady", err
+		}
+		_, response, err := satClient.GetAssignment(getAssignmentOptions)
+
+		if response.GetStatusCode() == 200 {
+			return true, "Ready", nil
+		}
+
+		return nil, "NotReady", nil
+	}
+}
+
+func waitForAssignmentUpdateStatus(updateAssignmentOptions *kubernetesserviceapiv1.UpdateAssignmentOptions, meta interface{}) (interface{}, error) {
+	stateConf := &resource.StateChangeConf{
+		Pending:        []string{"NotReady"},
+		Target:         []string{"Ready"},
+		Refresh:        assignmentUpdateStatusRefreshFunc(updateAssignmentOptions, meta),
+		Timeout:        time.Duration(time.Minute * 10),
+		Delay:          10 * time.Second,
+		MinTimeout:     10 * time.Second,
+		NotFoundChecks: 100,
+	}
+	return stateConf.WaitForState()
+}
+
+func assignmentUpdateStatusRefreshFunc(updateAssignmentOptions *kubernetesserviceapiv1.UpdateAssignmentOptions, meta interface{}) resource.StateRefreshFunc {
+	return func() (interface{}, string, error) {
+
+		satClient, err := meta.(conns.ClientSession).SatelliteClientSession()
+
+		if err != nil {
+			return nil, "NotReady", err
+		}
+
+		result, _, err := satClient.UpdateAssignment(updateAssignmentOptions)
+
+		if *result.EditSubscription.Success == true && err == nil {
+			return true, "Ready", nil
+		}
+
+		return nil, "NotReady", nil
+	}
+}
+
+func waitForAssignmentDeletionStatus(removeAssignmentOptions *kubernetesserviceapiv1.RemoveAssignmentOptions, meta interface{}) (interface{}, error) {
+	stateConf := &resource.StateChangeConf{
+		Pending:        []string{"NotReady"},
+		Target:         []string{"Ready"},
+		Refresh:        assignmentDeletionStatusRefreshFunc(removeAssignmentOptions, meta),
+		Timeout:        time.Duration(time.Minute * 10),
+		Delay:          10 * time.Second,
+		MinTimeout:     10 * time.Second,
+		NotFoundChecks: 100,
+	}
+	return stateConf.WaitForState()
+}
+
+func assignmentDeletionStatusRefreshFunc(removeAssignmentOptions *kubernetesserviceapiv1.RemoveAssignmentOptions, meta interface{}) resource.StateRefreshFunc {
+	return func() (interface{}, string, error) {
+
+		satClient, err := meta.(conns.ClientSession).SatelliteClientSession()
+
+		if err != nil {
+			return nil, "NotReady", err
+		}
+
+		response, _, err := satClient.RemoveAssignment(removeAssignmentOptions)
+		if *response.RemoveSubscription.Success == true && err == nil {
+			return true, "Ready", nil
+		}
+
+		return nil, "NotReady", nil
+	}
 }
