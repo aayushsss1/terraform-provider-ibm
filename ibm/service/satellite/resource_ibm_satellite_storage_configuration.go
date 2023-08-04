@@ -38,125 +38,118 @@ func ResourceIBMSatelliteStorageConfiguration() *schema.Resource {
 				Required:    true,
 				Description: "Location ID.",
 			},
-			"storage_configuration": {
-				Type:        schema.TypeList,
+			"config_name": {
+				Type:        schema.TypeString,
 				Required:    true,
-				Description: "The Set of different Storage Configurations",
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
-						"config_name": {
-							Type:        schema.TypeString,
-							Required:    true,
-							ForceNew:    true,
-							Description: "Name of the Storage Configuration.",
-						},
-						"config_version": {
-							Type:        schema.TypeString,
-							Computed:    true,
-							Description: "Version of the Storage Configuration.",
-						},
-						"storage_template_name": {
-							Type:        schema.TypeString,
-							Required:    true,
-							ForceNew:    true,
-							Description: "The Storage Template Name.",
-						},
-						"storage_template_version": {
-							Type:        schema.TypeString,
-							Required:    true,
-							ForceNew:    true,
-							Description: "The Storage Template Version.",
-						},
-						"user_config_parameters": {
-							Type:     schema.TypeString,
-							Required: true,
-							StateFunc: func(v interface{}) string {
-								json, err := flex.NormalizeJSONString(v)
-								if err != nil {
-									return fmt.Sprintf("%q", err.Error())
-								}
-								return json
-							},
-							Description: "User Config Parameters to pass in a JSON string format.",
-						},
-						"user_secret_parameters": {
-							Type:     schema.TypeString,
-							Required: true,
-							DiffSuppressFunc: func(k, old, new string, d *schema.ResourceData) bool {
-								if len(d.Id()) == 0 {
-									return false
-								}
-								var oldsecretParams map[string]string
-								json.Unmarshal([]byte(old), &oldsecretParams)
-								var newsecretParams map[string]string
-								json.Unmarshal([]byte(new), &newsecretParams)
-								for k, _ := range oldsecretParams {
-									h := sha256.New()
-									bs := h.Sum(nil)
-									h.Write([]byte(newsecretParams[k]))
-									securebs := hex.EncodeToString(bs)
-									if !cmp.Equal(strings.Join([]string{"hash", "SHA3-256", securebs}, ":"), oldsecretParams[k]) {
-										return false
-									}
-								}
-								return true
-							},
-							StateFunc: func(v interface{}) string {
-								json, err := flex.NormalizeJSONString(v)
-								if err != nil {
-									return fmt.Sprintf("%q", err.Error())
-								}
-								return json
-							},
-							Description: "User Secret Parameters to pass in a JSON string format.",
-						},
-						"storage_class_parameters": {
-							Type:     schema.TypeList,
-							Optional: true,
-							Elem: &schema.Schema{
-								Type:    schema.TypeString,
-								Default: "[]",
-								StateFunc: func(v interface{}) string {
-									json, err := flex.NormalizeJSONString(v)
-									if err != nil {
-										return fmt.Sprintf("%q", err.Error())
-									}
-									return json
-								},
-								Description: "The List of Storage Class Parameters.",
-							},
-						},
-						"uuid": {
-							Type:        schema.TypeString,
-							Computed:    true,
-							ForceNew:    true,
-							Description: "The Universally Unique IDentifier (UUID) of the Storage Configuration.",
-						},
-					},
+				ForceNew:    true,
+				Description: "Name of the Storage Configuration.",
+			},
+			"config_version": {
+				Type:        schema.TypeString,
+				Computed:    true,
+				Description: "Version of the Storage Configuration.",
+			},
+			"storage_template_name": {
+				Type:        schema.TypeString,
+				Required:    true,
+				ForceNew:    true,
+				Description: "The Storage Template Name.",
+			},
+			"storage_template_version": {
+				Type:        schema.TypeString,
+				Required:    true,
+				ForceNew:    true,
+				Description: "The Storage Template Version.",
+			},
+			"user_config_parameters": {
+				Type:     schema.TypeString,
+				Required: true,
+				StateFunc: func(v interface{}) string {
+					json, err := flex.NormalizeJSONString(v)
+					if err != nil {
+						return fmt.Sprintf("%q", err.Error())
+					}
+					return json
 				},
+				Description: "User Config Parameters to pass in a JSON string format.",
+			},
+			"user_secret_parameters": {
+				Type:     schema.TypeString,
+				Required: true,
+				DiffSuppressFunc: func(k, old, new string, d *schema.ResourceData) bool {
+					if len(d.Id()) == 0 {
+						return false
+					}
+					var oldsecretParams map[string]string
+					json.Unmarshal([]byte(old), &oldsecretParams)
+					var newsecretParams map[string]string
+					json.Unmarshal([]byte(new), &newsecretParams)
+					for k, _ := range oldsecretParams {
+						h := sha256.New()
+						bs := h.Sum(nil)
+						h.Write([]byte(newsecretParams[k]))
+						securebs := hex.EncodeToString(bs)
+						if !cmp.Equal(strings.Join([]string{"hash", "SHA3-256", securebs}, ":"), oldsecretParams[k]) {
+							return false
+						}
+					}
+					return true
+				},
+				StateFunc: func(v interface{}) string {
+					json, err := flex.NormalizeJSONString(v)
+					if err != nil {
+						return fmt.Sprintf("%q", err.Error())
+					}
+					return json
+				},
+				Description: "User Secret Parameters to pass in a JSON string format.",
+			},
+			"storage_class_parameters": {
+				Type:     schema.TypeList,
+				Optional: true,
+				Elem: &schema.Schema{
+					Type:    schema.TypeString,
+					Default: "[]",
+					StateFunc: func(v interface{}) string {
+						json, err := flex.NormalizeJSONString(v)
+						if err != nil {
+							return fmt.Sprintf("%q", err.Error())
+						}
+						return json
+					},
+					Description: "The List of Storage Class Parameters.",
+				},
+			},
+			"uuid": {
+				Type:        schema.TypeString,
+				Computed:    true,
+				ForceNew:    true,
+				Description: "The Universally Unique IDentifier (UUID) of the Storage Configuration.",
 			},
 		},
 	}
 }
 
-func validateStorageConfig(sc map[string]interface{}, meta interface{}) error {
+func validateStorageConfig(d *schema.ResourceData, meta interface{}) error {
 	satClient, err := meta.(conns.ClientSession).SatelliteClientSession()
 	if err != nil {
 		return err
 	}
 
-	storageTemplateName := sc["storage_template_name"].(string)
-	storageTemplateVersion := sc["storage_template_version"].(string)
+	storageTemplateName := d.Get("storage_template_name").(string)
+	storageTemplateVersion := d.Get("storage_template_version").(string)
 	storageresult := &kubernetesserviceapiv1.GetStorageTemplateOptions{
 		Name:    &storageTemplateName,
 		Version: &storageTemplateVersion,
 	}
 
+	user_config_parameters := d.Get("user_config_parameters")
 	var userconfigParams map[string]string
-	json.Unmarshal([]byte(sc["user_config_parameters"].(string)), &userconfigParams)
+	json.Unmarshal([]byte(user_config_parameters.(string)), &userconfigParams)
 
+	user_secret_parameters := d.Get("user_secret_parameters")
 	var usersecretParams map[string]string
-	json.Unmarshal([]byte(sc["user_secret_parameters"].(string)), &usersecretParams)
+	json.Unmarshal([]byte(user_secret_parameters.(string)), &usersecretParams)
 
 	result, _, err := satClient.GetStorageTemplate(storageresult)
 	if err != nil {
@@ -205,145 +198,151 @@ func resourceIBMContainerStorageConfigurationCreate(d *schema.ResourceData, meta
 	createStorageConfigurationOptions := &kubernetesserviceapiv1.CreateStorageConfigurationOptions{}
 	satLocation := d.Get("location").(string)
 	createStorageConfigurationOptions.Controller = &satLocation
-	storageConfigSet := d.Get("storage_configuration").([]interface{})
 
-	for _, scSet := range storageConfigSet {
-		sc, _ := scSet.(map[string]interface{})
+	err = validateStorageConfig(d, meta)
+	if err != nil {
+		return err
+	}
 
-		err = validateStorageConfig(sc, meta)
-		if err != nil {
-			return err
-		}
+	if v, ok := d.GetOk("config_name"); ok {
+		createStorageConfigurationOptions.SetConfigName(v.(string))
+	}
 
-		if v, ok := sc["config_name"]; ok {
-			createStorageConfigurationOptions.SetConfigName(v.(string))
-		}
+	if v, ok := d.GetOk("storage_template_name"); ok {
+		createStorageConfigurationOptions.SetStorageTemplateName(v.(string))
+	}
 
-		if v, ok := sc["storage_template_name"]; ok {
-			createStorageConfigurationOptions.SetStorageTemplateName(v.(string))
-		}
+	if v, ok := d.GetOk("storage_template_version"); ok {
+		createStorageConfigurationOptions.SetStorageTemplateVersion(v.(string))
+	}
 
-		if v, ok := sc["storage_template_version"]; ok {
-			createStorageConfigurationOptions.SetStorageTemplateVersion(v.(string))
-		}
+	if v, ok := d.GetOk("user_config_parameters"); ok {
+		var userconfigParams map[string]string
+		json.Unmarshal([]byte(v.(string)), &userconfigParams)
+		createStorageConfigurationOptions.SetUserConfigParameters(userconfigParams)
+	}
 
-		if v, ok := sc["user_config_parameters"]; ok {
-			var userconfigParams map[string]string
-			json.Unmarshal([]byte(v.(string)), &userconfigParams)
-			createStorageConfigurationOptions.SetUserConfigParameters(userconfigParams)
-		}
+	if v, ok := d.GetOk("user_secret_parameters"); ok {
+		var usersecretParams map[string]string
+		json.Unmarshal([]byte(v.(string)), &usersecretParams)
+		createStorageConfigurationOptions.SetUserSecretParameters(usersecretParams)
+	}
 
-		if v, ok := sc["user_secret_parameters"]; ok {
-			var usersecretParams map[string]string
-			json.Unmarshal([]byte(v.(string)), &usersecretParams)
-			createStorageConfigurationOptions.SetUserSecretParameters(usersecretParams)
-		}
-
-		if storageClassParamsList, ok := sc["storage_class_parameters"].([]interface{}); ok {
-			var mapString []map[string]string
-			if len(storageClassParamsList) != 0 {
-				for _, value := range storageClassParamsList {
-					var storageclassParams map[string]string
-					json.Unmarshal([]byte(value.(string)), &storageclassParams)
-					log.Println(storageclassParams)
-					mapString = append(mapString, storageclassParams)
-				}
-				createStorageConfigurationOptions.SetStorageClassParameters(mapString)
+	if storageClassParamsList, ok := d.GetOk("storage_class_parameters"); ok {
+		var mapString []map[string]string
+		if len(storageClassParamsList.([]interface{})) != 0 {
+			for _, value := range storageClassParamsList.([]interface{}) {
+				var storageclassParams map[string]string
+				json.Unmarshal([]byte(value.(string)), &storageclassParams)
+				mapString = append(mapString, storageclassParams)
 			}
-		}
-
-		_, _, err := satClient.CreateStorageConfiguration(createStorageConfigurationOptions)
-		if err != nil {
-			return fmt.Errorf("Unable to Create Storage Configuration - %v", err)
-		}
-		getStorageConfigurationOptions := &kubernetesserviceapiv1.GetStorageConfigurationOptions{
-			Name: createStorageConfigurationOptions.ConfigName,
-		}
-		_, err = waitForStorageCreationStatus(getStorageConfigurationOptions, meta)
-		if err != nil {
-			return err
+			createStorageConfigurationOptions.SetStorageClassParameters(mapString)
 		}
 	}
+
+	_, _, err = satClient.CreateStorageConfiguration(createStorageConfigurationOptions)
+	if err != nil {
+		return fmt.Errorf("Unable to Create Storage Configuration - %v", err)
+	}
+	getStorageConfigurationOptions := &kubernetesserviceapiv1.GetStorageConfigurationOptions{
+		Name: createStorageConfigurationOptions.ConfigName,
+	}
+	_, err = waitForStorageCreationStatus(getStorageConfigurationOptions, meta)
+	if err != nil {
+		return err
+	}
+
 	d.SetId(satLocation)
 	return resourceIBMContainerStorageConfigurationRead(d, meta)
 }
 
 func resourceIBMContainerStorageConfigurationRead(d *schema.ResourceData, meta interface{}) error {
-	var mapString = make(map[string][]map[string]string)
-	var userSecretParameters = make(map[string](map[string]string))
-	var storageConfigList []string
-	storageConfigurations := []interface{}{}
 
+	var scDefinedList []string
 	satClient, err := meta.(conns.ClientSession).SatelliteClientSession()
 	if err != nil {
 		return err
 	}
-	storageConfigSet := d.Get("storage_configuration").([]interface{})
+
 	satLocation := d.Get("location").(string)
 	d.Set("location", satLocation)
-	for _, scSet := range storageConfigSet {
-		sc, _ := scSet.(map[string]interface{})
-		// List of Storage Configuration Names
-		storageConfigList = append(storageConfigList, sc["config_name"].(string))
 
-		// Map of Storage Configuration Name and the corresponding Storage Class Parameter List
-		storageClassParamsList := sc["storage_class_parameters"].([]interface{})
-		if len(storageClassParamsList) != 0 {
-			for _, value := range storageClassParamsList {
-				var storageclassParams map[string]string
-				json.Unmarshal([]byte(value.(string)), &storageclassParams)
-				mapString[sc["config_name"].(string)] = append(mapString[sc["config_name"].(string)], storageclassParams)
+	storageClassParamsList := d.Get("storage_class_parameters").([]interface{})
+	if len(storageClassParamsList) != 0 {
+		for _, value := range storageClassParamsList {
+			var storageclassParams map[string]string
+			json.Unmarshal([]byte(value.(string)), &storageclassParams)
+			scDefinedList = append(scDefinedList, storageclassParams[])
 			}
 		}
-		// Map of Storage Configuration Name and the corresponding User Secrets Parameters Map
-		var usersecretParams map[string]string
-		json.Unmarshal([]byte(sc["user_secret_parameters"].(string)), &usersecretParams)
-		userSecretParameters[sc["config_name"].(string)] = usersecretParams
-	}
 
-	// Iterate through all the Storage Names and Set the respective parameters
-	for _, storageconfigname := range storageConfigList {
+// 	var mapString = make(map[string][]map[string]string)
+// 	var userSecretParameters = make(map[string](map[string]string))
+// 	var storageConfigList []string
+// 	storageConfigurations := []interface{}{}
 
-		getStorageConfigurationOptions := &kubernetesserviceapiv1.GetStorageConfigurationOptions{
-			Name: &storageconfigname,
-		}
+// 	satClient, err := meta.(conns.ClientSession).SatelliteClientSession()
+// 	if err != nil {
+// 		return err
+// 	}
+// 	storageConfigSet := d.Get("storage_configuration").([]interface{})
+// 	satLocation := d.Get("location").(string)
+// 	d.Set("location", satLocation)
 
-		result, _, err := satClient.GetStorageConfiguration(getStorageConfigurationOptions)
-		if err != nil {
-			return err
-		}
-		// Set the records with results from the server
-		record := map[string]interface{}{}
-		record["config_name"] = *result.ConfigName
-		record["config_version"] = *result.ConfigVersion
-		record["storage_template_name"] = *result.StorageTemplateName
-		record["storage_template_version"] = *result.StorageTemplateVersion
-		temp, _ := json.Marshal(result.UserConfigParameters)
-		record["user_config_parameters"] = string(temp)
-		// Secrets are encoded from the server, a local hashed copy is saved in the tfstate file, to allow api recycling
-		secretMap := userSecretParameters[*result.ConfigName]
-		// sha256 encoding
-		err = encodeSecretParameters(&secretMap, d)
-		if err != nil {
-			return err
-		}
-		temp, _ = json.Marshal(secretMap)
-		record["user_secret_parameters"] = string(temp)
-		// Only the Storage Classes Defined in the Terraform Template is added to the tfstate file this prevents irrelevant differences
-		var storageClassList []string
-		for _, v := range result.StorageClassParameters {
-			if getDefinedStorageClasses(mapString[record["config_name"].(string)], v) {
-				c, _ := json.Marshal(v)
-				storageClassList = append(storageClassList, string(c))
-			}
-		}
-		record["storage_class_parameters"] = storageClassList
-		record["uuid"] = *result.UUID
-		storageConfigurations = append(storageConfigurations, record)
-	}
-	// Set the Storage Configuration
-	d.Set("storage_configuration", storageConfigurations)
-	return nil
+// 		// Map of Storage Configuration Name and the corresponding Storage Class Parameter List
+// 		storageClassParamsList := sc["storage_class_parameters"].([]interface{})
+// 		if len(storageClassParamsList) != 0 {
+// 			for _, value := range storageClassParamsList {
+// 				var storageclassParams map[string]string
+// 				json.Unmarshal([]byte(value.(string)), &storageclassParams)
+// 				mapString[sc["config_name"].(string)] = append(mapString[sc["config_name"].(string)], storageclassParams)
+// 			}
+// 		}
+
+// 	// Iterate through all the Storage Names and Set the respective parameters
+// 	for _, storageconfigname := range storageConfigList {
+
+// 		getStorageConfigurationOptions := &kubernetesserviceapiv1.GetStorageConfigurationOptions{
+// 			Name: &storageconfigname,
+// 		}
+
+// 		result, _, err := satClient.GetStorageConfiguration(getStorageConfigurationOptions)
+// 		if err != nil {
+// 			return err
+// 		}
+// 		// Set the records with results from the server
+// 		record := map[string]interface{}{}
+// 		record["config_name"] = *result.ConfigName
+// 		record["config_version"] = *result.ConfigVersion
+// 		record["storage_template_name"] = *result.StorageTemplateName
+// 		record["storage_template_version"] = *result.StorageTemplateVersion
+// 		temp, _ := json.Marshal(result.UserConfigParameters)
+// 		record["user_config_parameters"] = string(temp)
+// 		// Secrets are encoded from the server, a local hashed copy is saved in the tfstate file, to allow api recycling
+// 		secretMap := userSecretParameters[*result.ConfigName]
+// 		// sha256 encoding
+// 		err = encodeSecretParameters(&secretMap, d)
+// 		if err != nil {
+// 			return err
+// 		}
+// 		temp, _ = json.Marshal(secretMap)
+// 		record["user_secret_parameters"] = string(temp)
+// 		// Only the Storage Classes Defined in the Terraform Template is added to the tfstate file this prevents irrelevant differences
+// 		var storageClassList []string
+// 		for _, v := range result.StorageClassParameters {
+// 			if getDefinedStorageClasses(mapString[record["config_name"].(string)], v) {
+// 				c, _ := json.Marshal(v)
+// 				storageClassList = append(storageClassList, string(c))
+// 			}
+// 		}
+// 		record["storage_class_parameters"] = storageClassList
+// 		record["uuid"] = *result.UUID
+// 		storageConfigurations = append(storageConfigurations, record)
+// 	}
+// 	// Set the Storage Configuration
+// 	d.Set("storage_configuration", storageConfigurations)
+// 	return nil
+// }
 }
 
 func resourceIBMContainerStorageConfigurationUpdate(d *schema.ResourceData, meta interface{}) error {
