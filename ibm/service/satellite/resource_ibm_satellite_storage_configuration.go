@@ -1,19 +1,14 @@
 package satellite
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
 	"reflect"
-	"strings"
 	"time"
 
 	"github.com/IBM-Cloud/container-services-go-sdk/kubernetesserviceapiv1"
 	"github.com/IBM-Cloud/terraform-provider-ibm/ibm/conns"
 	"github.com/IBM-Cloud/terraform-provider-ibm/ibm/flex"
-	"github.com/google/go-cmp/cmp"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"k8s.io/utils/strings/slices"
@@ -42,6 +37,7 @@ func ResourceIBMSatelliteStorageConfiguration() *schema.Resource {
 				Type:        schema.TypeString,
 				Required:    true,
 				ForceNew:    true,
+				Sensitive:   true,
 				Description: "Name of the Storage Configuration.",
 			},
 			"config_version": {
@@ -75,25 +71,6 @@ func ResourceIBMSatelliteStorageConfiguration() *schema.Resource {
 			"user_secret_parameters": {
 				Type:     schema.TypeString,
 				Required: true,
-				DiffSuppressFunc: func(k, old, new string, d *schema.ResourceData) bool {
-					if len(d.Id()) == 0 {
-						return false
-					}
-					var oldsecretParams map[string]string
-					json.Unmarshal([]byte(old), &oldsecretParams)
-					var newsecretParams map[string]string
-					json.Unmarshal([]byte(new), &newsecretParams)
-					for k, _ := range oldsecretParams {
-						h := sha256.New()
-						bs := h.Sum(nil)
-						h.Write([]byte(newsecretParams[k]))
-						securebs := hex.EncodeToString(bs)
-						if !cmp.Equal(strings.Join([]string{"hash", "SHA3-256", securebs}, ":"), oldsecretParams[k]) {
-							return false
-						}
-					}
-					return true
-				},
 				StateFunc: func(v interface{}) string {
 					json, err := flex.NormalizeJSONString(v)
 					if err != nil {
@@ -204,10 +181,10 @@ func resourceIBMContainerStorageConfigurationCreate(d *schema.ResourceData, meta
 	satLocation := d.Get("location").(string)
 	createStorageConfigurationOptions.Controller = &satLocation
 
-	err = validateStorageConfig(d, meta)
-	if err != nil {
-		return err
-	}
+	// err = validateStorageConfig(d, meta)
+	// if err != nil {
+	// 	return err
+	// }
 
 	if v, ok := d.GetOk("config_name"); ok {
 		createStorageConfigurationOptions.SetConfigName(v.(string))
@@ -281,11 +258,11 @@ func resourceIBMContainerStorageConfigurationRead(d *schema.ResourceData, meta i
 		}
 	}
 
-	storageConfigName := d.Get("config_name").(string)
-
-	secretsMap := d.Get("user_secret_parameters")
+	user_secret_parameters := d.Get("user_secret_parameters")
 	var usersecretParams map[string]string
-	json.Unmarshal([]byte(secretsMap.(string)), &usersecretParams)
+	json.Unmarshal([]byte(user_secret_parameters.(string)), &usersecretParams)
+
+	storageConfigName := d.Get("config_name").(string)
 
 	getStorageConfigurationOptions := &kubernetesserviceapiv1.GetStorageConfigurationOptions{
 		Name: &storageConfigName,
@@ -304,11 +281,11 @@ func resourceIBMContainerStorageConfigurationRead(d *schema.ResourceData, meta i
 	temp, _ := json.Marshal(result.UserConfigParameters)
 	d.Set("user_config_parameters", string(temp))
 
-	err = encodeSecretParameters(&usersecretParams, d)
-	if err != nil {
-		return err
+	for k, _ := range result.UserSecretParameters {
+		result.UserSecretParameters[k] = usersecretParams[k]
 	}
-	temp, _ = json.Marshal(usersecretParams)
+
+	temp, _ = json.Marshal(result.UserSecretParameters)
 	d.Set("user_secret_parameters", string(temp))
 
 	var storageClassList []string
@@ -346,12 +323,10 @@ func resourceIBMContainerStorageConfigurationUpdate(d *schema.ResourceData, meta
 		getAssignmentsByConfigOptions := &kubernetesserviceapiv1.GetAssignmentsByConfigOptions{
 			Config: &configName,
 		}
-		log.Println("Get Assignments By Config")
 		result, _, err := satClient.GetAssignmentsByConfig(getAssignmentsByConfigOptions)
 		if err != nil {
 			return err
 		}
-		log.Println("Starting Assignments Delete")
 		err = resourceIBMContainerStorageConfigurationDelete(d, meta)
 		if err != nil {
 			return err
@@ -508,23 +483,6 @@ func getDefinedStorageClasses(definedMaps []map[string]string, getMaps map[strin
 		}
 	}
 	return false
-}
-
-func encodeSecretParameters(secrets *map[string]string, d *schema.ResourceData) error {
-	for k, v := range *secrets {
-		if strings.Contains(k, "SHA3") {
-			return nil
-		}
-		if len(d.Id()) == 0 {
-			return fmt.Errorf("[ERROR] Resource Instance not Created")
-		}
-		h := sha256.New()
-		bs := h.Sum(nil)
-		h.Write([]byte(v))
-		securebs := hex.EncodeToString(bs)
-		(*secrets)[k] = strings.Join([]string{"hash", "SHA3-256", securebs}, ":")
-	}
-	return nil
 }
 
 func resourceIBMContainerStorageConfigurationExists(d *schema.ResourceData, meta interface{}) (bool, error) {
