@@ -181,10 +181,10 @@ func resourceIBMContainerStorageConfigurationCreate(d *schema.ResourceData, meta
 	satLocation := d.Get("location").(string)
 	createStorageConfigurationOptions.Controller = &satLocation
 
-	// err = validateStorageConfig(d, meta)
-	// if err != nil {
-	// 	return err
-	// }
+	err = validateStorageConfig(d, meta)
+	if err != nil {
+		return err
+	}
 
 	if v, ok := d.GetOk("config_name"); ok {
 		createStorageConfigurationOptions.SetConfigName(v.(string))

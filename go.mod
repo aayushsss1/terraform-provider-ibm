@@ -230,7 +230,7 @@ replace github.com/portworx/sched-ops v0.0.0-20200831185134-3e8010dc7056 => gith
 
 replace github.com/IBM-Cloud/container-services-go-sdk v0.0.0-20230118060037-101bda076037 => github.com/aayushsss1/container-services-go-sdk v0.0.0-20230814065825-e4de4066498c
 
-replace github.com/IBM/go-sdk-core/v5 v5.13.4 => github.com/aayushsss1/go-sdk-core/v5 v5.0.0-20230816142024-c5c71314786b
+replace github.com/IBM/go-sdk-core/v5 v5.13.4 => github.com/aayushsss1/go-sdk-core/v5 v5.0.0-20230818132320-fb9ac6db9dd0
 
 exclude (
 	github.com/kubernetes-incubator/external-storage v0.20.4-openstorage-rc2
