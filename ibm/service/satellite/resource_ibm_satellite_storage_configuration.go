@@ -326,41 +326,6 @@ func resourceIBMContainerStorageConfigurationUpdate(d *schema.ResourceData, meta
 		return err
 	}
 
-	configName := d.Get("config_name").(string)
-
-	if d.HasChange("storage_template_version") {
-		getAssignmentsByConfigOptions := &kubernetesserviceapiv1.GetAssignmentsByConfigOptions{
-			Config: &configName,
-		}
-		result, _, err := satClient.GetAssignmentsByConfig(getAssignmentsByConfigOptions)
-		if err != nil {
-			return err
-		}
-		err = resourceIBMContainerStorageConfigurationDelete(d, meta)
-		if err != nil {
-			return err
-		}
-		err = resourceIBMContainerStorageConfigurationCreate(d, meta)
-		if err != nil {
-			return err
-		}
-		controller := d.Get("location").(string)
-
-		for _, v := range result {
-			createAssignmentConfigOptions := &kubernetesserviceapiv1.CreateAssignmentOptions{
-				Name:       v.Name,
-				Config:     v.ChannelName,
-				Cluster:    v.Cluster,
-				Controller: &controller,
-			}
-			_, _, err = satClient.CreateAssignmentByCluster(createAssignmentConfigOptions)
-			if err != nil {
-				return fmt.Errorf("[ERROR] Creating Assignment during Storage Configuration Upgrade - %v", err)
-			}
-		}
-
-	}
-
 	if d.HasChange("user_config_parameters") || d.HasChange("user_secret_parameters") || d.HasChange("storage_class_parameters") && !d.IsNewResource() {
 
 		if v, ok := d.GetOk("config_name"); ok {
@@ -437,6 +402,39 @@ func resourceIBMContainerStorageConfigurationUpdate(d *schema.ResourceData, meta
 		}
 	}
 
+	configName := d.Get("config_name").(string)
+	if d.HasChange("storage_template_version") {
+		getAssignmentsByConfigOptions := &kubernetesserviceapiv1.GetAssignmentsByConfigOptions{
+			Config: &configName,
+		}
+		result, _, err := satClient.GetAssignmentsByConfig(getAssignmentsByConfigOptions)
+		if err != nil {
+			return err
+		}
+		err = resourceIBMContainerStorageConfigurationDelete(d, meta)
+		if err != nil {
+			return err
+		}
+		err = resourceIBMContainerStorageConfigurationCreate(d, meta)
+		if err != nil {
+			return err
+		}
+		controller := d.Get("location").(string)
+
+		for _, v := range result {
+			createAssignmentConfigOptions := &kubernetesserviceapiv1.CreateAssignmentOptions{
+				Name:       v.Name,
+				Config:     v.ChannelName,
+				Cluster:    v.Cluster,
+				Controller: &controller,
+			}
+			_, _, err = satClient.CreateAssignmentByCluster(createAssignmentConfigOptions)
+			if err != nil {
+				return fmt.Errorf("[ERROR] Creating Assignment during Storage Configuration Upgrade - %v", err)
+			}
+		}
+	}
+
 	return resourceIBMContainerStorageConfigurationRead(d, meta)
 }
 
@@ -451,16 +449,13 @@ func resourceIBMContainerStorageConfigurationDelete(d *schema.ResourceData, meta
 	}
 
 	if delete_assignments {
-
 		getAssignmentsByConfigOptions := &kubernetesserviceapiv1.GetAssignmentsByConfigOptions{
 			Config: &name,
 		}
-
 		result, _, err := satClient.GetAssignmentsByConfig(getAssignmentsByConfigOptions)
 		if err != nil {
 			return err
 		}
-
 		for _, v := range result {
 			removeAssignmentsByConfigOptions := &kubernetesserviceapiv1.RemoveAssignmentOptions{
 				UUID: v.UUID,
