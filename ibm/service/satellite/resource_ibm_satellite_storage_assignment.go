@@ -112,7 +112,7 @@ func ResourceIBMSatelliteStorageAssignment() *schema.Resource {
 				ForceNew:    false,
 				Description: "Whether an Upgrade is Available for the Assignment.",
 			},
-			"update_config_version": {
+			"update_config_revision": {
 				Type:        schema.TypeBool,
 				Default:     false,
 				Optional:    true,
@@ -247,7 +247,7 @@ func resourceIBMContainerStorageAssignmentRead(d *schema.ResourceData, meta inte
 		d.Set("rollout_success_count", *result.RolloutStatus.SuccessCount)
 		d.Set("rollout_error_count", *result.RolloutStatus.ErrorCount)
 	}
-	d.Set("update_config_version", false)
+	d.Set("update_config_revision", false)
 	return nil
 }
 
@@ -256,14 +256,14 @@ func resourceIBMContainerStorageAssignmentUpdate(d *schema.ResourceData, meta in
 	updateAssignmentOptions := &kubernetesserviceapiv1.UpdateAssignmentOptions{}
 	updateAssignmentOptions.UUID = &uuid
 
-	if d.HasChange("assignment_name") || d.HasChange("groups") || d.HasChange("update_config_version") && !d.IsNewResource() {
+	if d.HasChange("assignment_name") || d.HasChange("groups") || d.HasChange("update_config_revision") && !d.IsNewResource() {
 		assignmentName := d.Get("assignment_name").(string)
 		updateAssignmentOptions.Name = &assignmentName
 
 		groups := flex.ExpandStringList(d.Get("groups").([]interface{}))
 		updateAssignmentOptions.Groups = groups
 
-		updateConfigVersion := d.Get("update_config_version").(bool)
+		updateConfigVersion := d.Get("update_config_revision").(bool)
 		updateAssignmentOptions.UpdateConfigVersion = &updateConfigVersion
 
 		_, err := waitForAssignmentUpdateStatus(updateAssignmentOptions, meta)
