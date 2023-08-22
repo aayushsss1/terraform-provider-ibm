@@ -108,6 +108,12 @@ func ResourceIBMSatelliteStorageConfiguration() *schema.Resource {
 				Default:     false,
 				Description: "Set to Update all Assignments during a Configuration Update.",
 			},
+			"delete_assignments": {
+				Type:        schema.TypeBool,
+				Optional:    true,
+				Default:     false,
+				Description: "Set to Delete all Assignments during a Configuration Update.",
+			},
 		},
 	}
 }
@@ -299,6 +305,9 @@ func resourceIBMContainerStorageConfigurationRead(d *schema.ResourceData, meta i
 	d.Set("uuid", *result.UUID)
 	d.Set("update_assignments", false)
 
+	delete_assignments := d.Get("delete_assignments").(bool)
+	d.Set("delete_assignments", delete_assignments)
+
 	return nil
 
 }
@@ -434,27 +443,32 @@ func resourceIBMContainerStorageConfigurationUpdate(d *schema.ResourceData, meta
 func resourceIBMContainerStorageConfigurationDelete(d *schema.ResourceData, meta interface{}) error {
 	uuid := d.Get("uuid").(string)
 	name := d.Get("config_name").(string)
+	delete_assignments := d.Get("delete_assignments").(bool)
+
 	satClient, err := meta.(conns.ClientSession).SatelliteClientSession()
 	if err != nil {
 		return err
 	}
 
-	getAssignmentsByConfigOptions := &kubernetesserviceapiv1.GetAssignmentsByConfigOptions{
-		Config: &name,
-	}
+	if delete_assignments {
 
-	result, _, err := satClient.GetAssignmentsByConfig(getAssignmentsByConfigOptions)
-	if err != nil {
-		return err
-	}
-
-	for _, v := range result {
-		removeAssignmentsByConfigOptions := &kubernetesserviceapiv1.RemoveAssignmentOptions{
-			UUID: v.UUID,
+		getAssignmentsByConfigOptions := &kubernetesserviceapiv1.GetAssignmentsByConfigOptions{
+			Config: &name,
 		}
-		_, _, err := satClient.RemoveAssignment(removeAssignmentsByConfigOptions)
+
+		result, _, err := satClient.GetAssignmentsByConfig(getAssignmentsByConfigOptions)
 		if err != nil {
-			return fmt.Errorf("[ERROR] Failed to Delete Assignments for Storage Configuration %s - %v", name, err)
+			return err
+		}
+
+		for _, v := range result {
+			removeAssignmentsByConfigOptions := &kubernetesserviceapiv1.RemoveAssignmentOptions{
+				UUID: v.UUID,
+			}
+			_, _, err := satClient.RemoveAssignment(removeAssignmentsByConfigOptions)
+			if err != nil {
+				return fmt.Errorf("[ERROR] Failed to Delete Assignments for Storage Configuration %s - %v", name, err)
+			}
 		}
 	}
 
